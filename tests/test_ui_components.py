@@ -96,3 +96,27 @@ def test_renderable_visual_falls_back_from_corrupt_headshot(tmp_path):
     assert player_visual_uri(_player(), tmp_path).startswith("data:image/png;base64,")
     logo.unlink()
     assert player_visual_uri(_player(), tmp_path).startswith("data:image/svg+xml;base64,")
+
+
+def test_player_pool_identity_guard_keeps_player_name_left(monkeypatch):
+    import ui_theme
+
+    captured = {}
+
+    def fake_data_editor(data, *args, **kwargs):
+        captured.update(kwargs)
+        return data
+
+    monkeypatch.setattr(ui_theme.st, "data_editor", fake_data_editor)
+    ui_theme._install_player_pool_identity_guard()
+
+    ui_theme.st.data_editor(
+        {"Player": ["Test Player"]},
+        key="player_pool_editor_v5_test",
+        column_order=["In Pool", "Visual", "Player", "Team", "Opp", "Pos", "Salary"],
+        column_config={},
+    )
+
+    assert captured["column_order"][:5] == ["In Pool", "Player", "Pos", "Team", "Opp"]
+    assert "Visual" not in captured["column_order"]
+    assert "Player" in captured["column_config"]
