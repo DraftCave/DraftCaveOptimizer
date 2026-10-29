@@ -3,4 +3,5 @@ numpy>=2.5,<3
 ortools>=9.15,<10
 streamlit>=1.66,<2
 fastapi>=0.118,<1
+httpx2>=0.28,<1
 pytest>=9,<10
