@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from functools import wraps
+
+import streamlit as st
+
 
 # Draft Cave visual system: black / midnight navy / cool blue first.
 # Gold is intentionally reserved for premium emphasis, never the core interaction color.
@@ -19,12 +23,65 @@ DRAFT_CAVE_RED = "#F16464"
 DRAFT_CAVE_AMBER = "#E6A93E"
 
 
+def _install_player_pool_identity_guard() -> None:
+    """Keep player names visible in the compact Player Pool.
+
+    Streamlit's data editor can squeeze the Player column when a standalone
+    ImageColumn sits immediately before it at common laptop/browser widths.
+    The optimizer already keeps the visual asset data, so the safest interim
+    presentation fix is to hide only that standalone image column in the
+    default Player Pool view and force Player to a large, left-anchored column.
+
+    This wrapper is scoped only to the Player Pool editor key and never changes
+    optimizer data, controls, projections, exposures, or export behavior.
+    """
+
+    current = st.data_editor
+    if getattr(current, "_draft_cave_identity_guard", False):
+        return
+
+    @wraps(current)
+    def guarded_data_editor(data, *args, **kwargs):
+        key = str(kwargs.get("key", ""))
+        if key.startswith("player_pool_editor_v5_"):
+            column_order = list(kwargs.get("column_order") or [])
+            if "Player" in column_order:
+                # The visual asset remains in the backing dataframe for future
+                # headshot/logo identity-cell polish, but does not consume a
+                # separate default column while names are the priority.
+                column_order = [column for column in column_order if column != "Visual"]
+                column_order = [column for column in column_order if column != "Player"]
+                insert_at = 1 if "In Pool" in column_order else 0
+                column_order.insert(insert_at, "Player")
+
+                # Keep the compact DS-style identity sequence near the left.
+                preferred = ["In Pool", "Player", "Pos", "Team", "Opp"]
+                ordered = [column for column in preferred if column in column_order]
+                ordered += [column for column in column_order if column not in ordered]
+                kwargs["column_order"] = ordered
+
+            column_config = dict(kwargs.get("column_config") or {})
+            column_config["Player"] = st.column_config.TextColumn(
+                "Player",
+                width="large",
+                help="Player name — always visible in the default pool view.",
+            )
+            kwargs["column_config"] = column_config
+
+        return current(data, *args, **kwargs)
+
+    guarded_data_editor._draft_cave_identity_guard = True
+    st.data_editor = guarded_data_editor
+
+
 def app_css() -> str:
     """Return presentation-only CSS for the Streamlit application.
 
     Blue is the primary interaction accent. Gold is reserved for premium or
     special emphasis only. Green/red/amber remain semantic status colors.
     """
+
+    _install_player_pool_identity_guard()
 
     return f"""
     <style>
