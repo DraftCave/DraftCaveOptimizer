@@ -22,5 +22,14 @@
 3. Run final desktop visual QA after those changes.
 4. Only then consider merging/publishing.
 
+## Current completion estimate
+
+- Structural UI wiring: complete.
+- Player-name visibility regression: fixed and regression-tested.
+- Position-only bulk Min/Max: locked and regression-tested.
+- Results navigation: wired.
+- CI/test hardening: green.
+- Remaining work is primarily final interaction polish and visual QA rather than optimizer functionality.
+
 ![Main screen](screenshots/ui-main.jpg)
 ![Player Pool](screenshots/ui-pool.jpg)
