@@ -105,15 +105,15 @@ Position tabs remain:
 
 The table should be compact enough to show roughly 12–15 rows on a standard desktop viewport where practical.
 
-### Default visible columns
+### Default visible scan order
 
-Target default scan order:
+The left side must follow the DS-style scanning pattern and player names must never disappear or collapse behind a visual column:
 
 - In Pool
 - Player identity
+- Pos
 - Team
 - Opp
-- Pos
 - Salary
 - Proj
 - Own%
@@ -122,6 +122,10 @@ Target default scan order:
 - Sentiment
 - Min%
 - Max%
+
+Player identity must be anchored near the far left and given enough width to remain readable at normal desktop/browser widths.
+
+A standalone image column must not be allowed to squeeze or hide player names. If headshots/team logos cannot be merged cleanly into the identity cell, hide the standalone visual before sacrificing the player-name column.
 
 Research-only fields such as Role / Form / Environment / Edge / injury details should be hidden behind an optional research/details view rather than occupying the default table.
 
@@ -164,9 +168,15 @@ BAN sentiment may exclude a player, but manual pool exclusion and lock state rem
 
 Do NOT use a dropdown in the production UI.
 
-Use a DS-style one-click icon / face control.
+The target interaction is the DS pattern:
 
-Approved sentiment states and optimizer semantics remain:
+1. each player presents one compact face/icon representing the currently stored sentiment,
+2. neutral players begin as the neutral face,
+3. clicking that face opens the available sentiment choices,
+4. choosing a state immediately updates the displayed face/icon,
+5. the seven semantic states remain explicit internally.
+
+The seven approved states and optimizer semantics remain exactly:
 
 - ADORE: +10%
 - LOVE: +7.5%
@@ -176,19 +186,19 @@ Approved sentiment states and optimizer semantics remain:
 - HATE: -10%
 - BAN: exclude
 
-The UI may compress these into recognizable one-click icons/faces, but the stored semantic state must remain explicit and unchanged.
+Approved icons:
 
-Suggested visual scale:
+- ADORE: 😍
+- LOVE: ❤️
+- LIKE: 🙂
+- NEUTRAL: 😐
+- DISLIKE: 🙁
+- HATE: 😡
+- BAN: ⛔
 
-- 😍 Adore
-- ❤️ / 🙂 Love
-- 👍 Like
-- 😐 Neutral
-- 👎 Dislike
-- 😡 Hate
-- ⛔ Ban
+The production surface should not permanently display seven sentiment buttons for every interaction. The default presentation is one current-state face; the choice list appears only after interaction.
 
-The selected state should use a subtle ring/background rather than a large dropdown.
+If Streamlit limitations prevent a true per-row popover in V1, use the closest compact interaction that preserves the one-face-first mental model and exact seven-state semantics. Do not fall back to a large always-visible dropdown as the long-term design.
 
 Sentiment remains objective-only and must never mutate displayed/stored projections.
 
@@ -212,11 +222,26 @@ Movement is only shown when backed by actual prior snapshots.
 
 ## 11. Exposure controls
 
-Player Min% / Max% fields remain compact.
+Player Min% / Max% fields remain compact and individually editable.
 
-Position-wide bulk Min/Max controls may remain but must not dominate the page.
+Bulk Min% / Max% behavior is locked to the active position tab:
 
-Do not add a redundant second position selector when the active position tab already defines the bulk-edit target.
+- `QB` tab changes QBs only.
+- `RB` tab changes RBs only.
+- `WR` tab changes WRs only.
+- `TE` tab changes TEs only.
+- `DST` tab changes DSTs only.
+- No bulk position control may alter another position.
+
+Example: setting RB Max to `35%` applies `35%` to all RBs in the active RB position group and leaves QB/WR/TE/DST values unchanged. Individual RB overrides may then be edited afterward.
+
+The active position tab is the bulk-edit target. Do not add a redundant second position selector.
+
+The bulk control should clearly identify its scope, such as:
+
+`RB Min 0% | RB Max 35% | Apply to 27 RBs`
+
+`ALL` remains a viewing/filtering mode. Position-wide Min/Max edits should require a specific position tab unless a future explicit all-player bulk control is deliberately added and separately tested.
 
 ## 12. Results navigation
 
@@ -289,12 +314,14 @@ The UI must not manufacture certainty.
 ## 16. Implementation order
 
 1. Restructure visual hierarchy without changing optimizer semantics.
-2. Replace sentiment dropdown with one-click icon control.
+2. Replace sentiment dropdown with one-face-first interaction.
 3. Tighten default player columns and row density.
-4. Add team-logo identity support with safe fallback.
-5. Add player headshots where reliable, with team-logo fallback.
-6. Reorganize Results into locked tab structure.
-7. Add compact status/freshness strip.
-8. Add snapshot delta presentation when snapshot history exists.
-9. Run full existing test suite after every behavior-adjacent change.
-10. Do not merge to `main` until parity and manual UI review are complete.
+4. Keep player identity left-anchored and always readable.
+5. Lock active-position-only bulk Min/Max behavior in tests.
+6. Add team-logo identity support with safe fallback.
+7. Add player headshots where reliable, with team-logo fallback.
+8. Reorganize Results into locked tab structure.
+9. Add compact status/freshness strip.
+10. Add snapshot delta presentation when snapshot history exists.
+11. Run full existing test suite after every behavior-adjacent change.
+12. Do not merge to `main` until parity and manual UI review are complete.
