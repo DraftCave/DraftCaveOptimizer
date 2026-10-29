@@ -150,6 +150,34 @@ def test_separate_lock_and_filtered_bulk_controls(ui):
     assert not at.exception
 
 
+def test_bulk_exposure_only_changes_active_position(ui):
+    at = ui
+    initial = pool_editor(at).value
+    rb_ids = set(map(int, initial.loc[initial['Pos'] == 'RB', 'ID']))
+    non_rb_ids = set(map(int, initial.loc[initial['Pos'] != 'RB', 'ID']))
+    before_non_rb = {
+        pid: (
+            at.session_state.player_controls[pid]['Min %'],
+            at.session_state.player_controls[pid]['Max %'],
+        )
+        for pid in non_rb_ids
+    }
+
+    at.radio(key='active_position').set_value('RB').run()
+    assert set(map(int, pool_editor(at).value['ID'])) == rb_ids
+    at.number_input(key='group_exposure_min_RB').set_value(10).run()
+    at.number_input(key='group_exposure_max_RB').set_value(35).run()
+    at.button(key='apply_group_exposure_RB').click().run()
+
+    assert not at.exception
+    for pid in rb_ids:
+        assert at.session_state.player_controls[pid]['Min %'] == 10
+        assert at.session_state.player_controls[pid]['Max %'] == 35
+    for pid, expected in before_non_rb.items():
+        controls = at.session_state.player_controls[pid]
+        assert (controls['Min %'], controls['Max %']) == expected
+
+
 def test_sentiment_buttons_keep_identity_and_missing_metrics(ui):
     at = ui
     frame = pool_editor(at).value
