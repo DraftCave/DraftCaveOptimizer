@@ -8,6 +8,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from datetime import datetime
+from ui_matchups import team_cell_uri, load_dvp, slate_digest, dvp_style, sort_pool
+from ui_theme import app_css
+from ui_components import SENTIMENT_ORDER, SENTIMENT_UI, sentiment_display, player_visual_uri, validate_sentiment_ui_contract
+
 from config import OptimizerSettings, discovery_example, raw_baseline
 from data_loader import (
     join_projections,
@@ -15,7 +20,7 @@ from data_loader import (
     load_projection_table,
 )
 from exporter import lineups_to_dk_dataframe
-from optimizer import generate_lineups
+from optimizer import generate_lineups, PLAYER_SENTIMENT_ADJUSTMENT
 from statrankings import load_snapshot
 from portfolio import (
     allocate_three_contests,
@@ -46,6 +51,14 @@ PLAYER_SENTIMENT_OPTIONS = [
 ]
 
 
+def _set_sentiment(player_id, sentiment):
+    controls = st.session_state.player_controls[player_id]
+    controls["Sentiment"] = sentiment
+    if sentiment == "BAN":
+        controls["Exclude"] = True
+    st.session_state.pool_editor_revision = st.session_state.get("pool_editor_revision", 0) + 1
+
+
 def _reset_position_exposure(position, player_ids):
     for pid in player_ids:
         st.session_state.player_controls[pid]["Min %"] = 0
@@ -62,6 +75,40 @@ def _set_visible_pool(key, player_ids):
         )
 
 
+def _apply_position_exposure(position, player_ids, changed_field):
+    min_key = f"group_exposure_min_{position}"
+    max_key = f"group_exposure_max_{position}"
+    min_value = int(st.session_state.get(min_key, 0))
+    max_value = int(st.session_state.get(max_key, 100))
+
+    # Keep the pair legal while preserving the field the user just changed.
+    if min_value > max_value:
+        if changed_field == "Min %":
+            max_value = min_value
+            st.session_state[max_key] = max_value
+        else:
+            min_value = max_value
+            st.session_state[min_key] = min_value
+
+    for pid in player_ids:
+        controls = st.session_state.player_controls[pid]
+        controls["Min %"] = min_value
+        controls["Max %"] = max_value
+
+    st.session_state.pool_editor_revision = st.session_state.get("pool_editor_revision", 0) + 1
+
+
+SENTIMENT_DISPLAY_TO_STATE = {
+    sentiment_display(state): state
+    for state in PLAYER_SENTIMENT_OPTIONS
+}
+
+
+def _sentiment_state(value):
+    raw = str(value)
+    return SENTIMENT_DISPLAY_TO_STATE.get(raw, raw.upper())
+
+
 def _save_pool_edits(editor_key, player_ids):
     # Commit by DK ID before rebuilding the table; discard old row-index deltas.
     for row_index, changes in st.session_state[editor_key]["edited_rows"].items():
@@ -72,7 +119,7 @@ def _save_pool_edits(editor_key, player_ids):
             elif column in ("Min %", "Max %"):
                 controls[column] = int(value)
             elif column == "Sentiment":
-                controls[column] = str(value).upper()
+                controls[column] = _sentiment_state(value)
         if controls.get("Sentiment") == "BAN":
             controls["Exclude"] = True
     st.session_state.pool_editor_revision = st.session_state.get("pool_editor_revision", 0) + 1
@@ -312,362 +359,8 @@ def _clear_last_run_cache():
 # DRAFT CAVE UI
 # ============================================================
 
-st.markdown(
-    """
-    <style>
-    /* --------------------------------------------------------
-       PAGE
-       -------------------------------------------------------- */
-
-    .stApp {
-        background:
-            radial-gradient(
-                circle at top left,
-                rgba(15, 72, 135, 0.16),
-                transparent 28%
-            ),
-            linear-gradient(
-                180deg,
-                #07111f 0%,
-                #081321 42%,
-                #060d17 100%
-            );
-        color: #e8eef7;
-    }
-
-    [data-testid="stAppViewContainer"] {
-        background: transparent;
-    }
-
-    [data-testid="stHeader"] {
-        background: rgba(6, 13, 23, 0.82);
-    }
-
-    [data-testid="stMainBlockContainer"] {
-        max-width: 1800px;
-        padding-top: 1rem;
-        padding-bottom: 3rem;
-        padding-left: 1.25rem;
-        padding-right: 1.25rem;
-    }
-
-    /* --------------------------------------------------------
-       TYPOGRAPHY
-       -------------------------------------------------------- */
-
-    h1, h2, h3, h4 {
-        color: #f4f8ff;
-        letter-spacing: -0.02em;
-    }
-
-    p, span, label {
-        color: #c8d4e3;
-    }
-
-    .dc-muted {
-        color: #7f91a7;
-        font-size: 0.84rem;
-    }
-
-    .dc-blue {
-        color: #1ea7ff;
-    }
-
-    /* --------------------------------------------------------
-       HEADER
-       -------------------------------------------------------- */
-
-    .dc-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.9rem 1.1rem;
-        border: 1px solid #1a2d42;
-        border-radius: 14px;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(16, 30, 48, 0.96),
-                rgba(8, 18, 31, 0.96)
-            );
-        margin-bottom: 0.85rem;
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
-    }
-
-    .dc-brand {
-        display: flex;
-        align-items: center;
-        gap: 0.8rem;
-    }
-
-    .dc-logo {
-        font-size: 2rem;
-        line-height: 1;
-    }
-
-    .dc-brand-title {
-        font-size: 1.35rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        color: #f4f8ff;
-    }
-
-    .dc-brand-sub {
-        font-size: 0.68rem;
-        letter-spacing: 0.24em;
-        color: #8397ae;
-        margin-top: 0.12rem;
-    }
-
-    .dc-header-badge {
-        color: #90a5bc;
-        border: 1px solid #223a54;
-        background: #0d1a2a;
-        padding: 0.45rem 0.8rem;
-        border-radius: 9px;
-        font-size: 0.8rem;
-    }
-
-    /* --------------------------------------------------------
-       PANEL HEADERS
-       -------------------------------------------------------- */
-
-    .dc-panel-title {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 1.08rem;
-        font-weight: 700;
-        color: #f3f7fd;
-        margin: 0.2rem 0 0.55rem 0;
-    }
-
-    .dc-section-label {
-        color: #1ea7ff;
-        font-size: 0.84rem;
-        font-weight: 700;
-        letter-spacing: 0.025em;
-        margin-top: 0.25rem;
-        margin-bottom: 0.2rem;
-    }
-
-    /* --------------------------------------------------------
-       CONTAINERS
-       -------------------------------------------------------- */
-
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: #192c40 !important;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(13, 26, 43, 0.93),
-                rgba(8, 18, 31, 0.93)
-            );
-        border-radius: 13px;
-    }
-
-    div[data-testid="stExpander"] {
-        border: 1px solid #1b3148;
-        border-radius: 10px;
-        background: rgba(10, 21, 35, 0.75);
-    }
-
-    div[data-testid="stExpander"] details summary {
-        color: #dbe8f6;
-        font-weight: 600;
-    }
-
-    /* --------------------------------------------------------
-       INPUTS
-       -------------------------------------------------------- */
-
-    .stTextInput input,
-    .stNumberInput input {
-        background-color: #0b1726 !important;
-        border-color: #21384f !important;
-        color: #eef5ff !important;
-        border-radius: 8px !important;
-    }
-
-    div[data-baseweb="select"] > div {
-        background-color: #0b1726 !important;
-        border-color: #21384f !important;
-        color: #eef5ff !important;
-        border-radius: 8px !important;
-    }
-
-    /* --------------------------------------------------------
-       BUTTONS
-       -------------------------------------------------------- */
-
-    .stButton > button {
-        border-radius: 9px;
-        border: 1px solid #24425f;
-        background: #0d1c2d;
-        color: #d9e8f7;
-        min-height: 2.45rem;
-        font-weight: 650;
-        transition: all 0.16s ease;
-    }
-
-    .stButton > button:hover {
-        border-color: #1ea7ff;
-        color: #ffffff;
-        background: #10283e;
-        box-shadow: 0 0 0 1px rgba(30, 167, 255, 0.18);
-    }
-
-    .stButton > button[kind="primary"] {
-        background:
-            linear-gradient(
-                180deg,
-                #209cff,
-                #087ee5
-            );
-        border-color: #23a5ff;
-        color: white;
-        font-weight: 800;
-        box-shadow: 0 6px 20px rgba(0, 136, 255, 0.25);
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        background:
-            linear-gradient(
-                180deg,
-                #37adff,
-                #1389ed
-            );
-        box-shadow: 0 8px 26px rgba(0, 136, 255, 0.34);
-    }
-
-    /* --------------------------------------------------------
-       RADIO = POSITION BUTTON BAR
-       -------------------------------------------------------- */
-
-    div[role="radiogroup"] {
-        gap: 0.35rem;
-        flex-wrap: wrap;
-    }
-
-    div[role="radiogroup"] label {
-        border: 1px solid #213b55;
-        border-radius: 8px;
-        background: #0c1929;
-        padding: 0.35rem 0.75rem;
-        transition: all 0.15s ease;
-    }
-
-    div[role="radiogroup"] label:hover {
-        border-color: #168eea;
-        background: #10283f;
-    }
-
-    div[role="radiogroup"] label:has(input:checked) {
-        background:
-            linear-gradient(
-                180deg,
-                #1f9cff,
-                #087edd
-            );
-        border-color: #2aabff;
-        color: white !important;
-        box-shadow: 0 3px 12px rgba(0, 132, 255, 0.25);
-    }
-
-    div[role="radiogroup"] label:has(input:checked) p {
-        color: white !important;
-        font-weight: 700;
-    }
-
-    /* --------------------------------------------------------
-       TABS
-       -------------------------------------------------------- */
-
-    button[data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        color: #9eb0c4;
-        font-weight: 650;
-    }
-
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #2ba8ff !important;
-    }
-
-    /* --------------------------------------------------------
-       DATAFRAME / EDITOR
-       -------------------------------------------------------- */
-
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1a3047;
-        border-radius: 10px;
-        overflow: hidden;
-    }
-
-    [data-testid="stDataFrame"] iframe {
-        background: #07111e;
-    }
-
-    /* --------------------------------------------------------
-       METRICS
-       -------------------------------------------------------- */
-
-    [data-testid="stMetric"] {
-        background:
-            linear-gradient(
-                180deg,
-                rgba(15, 29, 46, 0.94),
-                rgba(9, 19, 32, 0.94)
-            );
-        border: 1px solid #1a3047;
-        border-radius: 10px;
-        padding: 0.7rem 0.85rem;
-    }
-
-    [data-testid="stMetricLabel"] {
-        color: #8296ad;
-    }
-
-    [data-testid="stMetricValue"] {
-        color: #f2f7fd;
-    }
-
-    /* --------------------------------------------------------
-       ALERTS
-       -------------------------------------------------------- */
-
-    [data-testid="stAlert"] {
-        border-radius: 9px;
-    }
-
-    /* --------------------------------------------------------
-       DOWNLOAD BUTTON
-       -------------------------------------------------------- */
-
-    .stDownloadButton > button {
-        width: 100%;
-        border-radius: 8px;
-        border-color: #214462;
-        background: #0d2032;
-        color: #dceeff;
-    }
-
-    /* --------------------------------------------------------
-       SMALLER STREAMLIT CHROME
-       -------------------------------------------------------- */
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
+st.markdown(app_css(), unsafe_allow_html=True)
+validate_sentiment_ui_contract()
 
 st.markdown(
     """
@@ -706,10 +399,10 @@ if "active_position" not in st.session_state:
 # DATA SOURCES
 # ============================================================
 
-with st.container(border=True):
+with st.expander("Slate Data", expanded=not (LOCAL_DK_FILE.exists() and LOCAL_PROJECTION_FILE.exists())):
 
     st.markdown(
-        '<div class="dc-panel-title">📁 Slate Data</div>',
+        '<div class="dc-panel-title">Upload slate files</div>',
         unsafe_allow_html=True,
     )
 
@@ -797,6 +490,7 @@ except Exception as exc:
 
 
 sr_snapshot = load_snapshot(LOCAL_STATRANKINGS_FILE, players)
+dvp_values, dvp_status = load_dvp(DATA_DIR / "dvp.json", slate_digest(dk_file), players)
 
 current_source_signature = _current_source_signature(
     dk_file,
@@ -849,51 +543,29 @@ ceiling_complete = all(
 # SOURCE STATUS
 # ============================================================
 
-status_left, status_mid, status_right = st.columns(
-    [2, 2, 1]
+status_slot = st.empty()
+local_times = [f.stat().st_mtime for f in (dk_file, projection_file) if isinstance(f, Path)]
+freshness = datetime.fromtimestamp(min(local_times)).astimezone().strftime("%b %d %H:%M %Z") if len(local_times) == 2 else "Uploaded this session"
+last_run_label = "Available" if "generation_result" in st.session_state else "Not run"
+status_slot.caption(
+    f"{'🟢' if not unresolved else '🟠'} {matched} matched · {unresolved} unresolved · "
+    f"Oldest file update: {freshness} · Last run: {last_run_label} · "
+    f"OWN: {'Complete' if ownership_complete else 'Missing'} · Ceiling: {'Complete' if ceiling_complete else 'Missing'}"
 )
-
-status_left.caption(
-    f"DK: {dk_source_label}"
-)
-
-status_mid.caption(
-    f"Projections: {projection_source_label}"
-)
-
-status_right.caption(
-    f"{matched} matched • {unresolved} unresolved"
-)
-
-
-st.caption(
-    f"StatRankings: {sr_snapshot.status} | "
-    f"{len(sr_snapshot.evidence_by_id)} matched • "
-    f"{len(sr_snapshot.unresolved)} unresolved"
-)
-if sr_snapshot.unresolved:
-    with st.expander("Unresolved StatRankings evidence", expanded=False):
+with st.expander("Data Status · details", expanded=with_projection == 0):
+    st.caption(f"Salary file: {dk_source_label} | Projections: {projection_source_label}")
+    st.caption(f"StatRankings: {sr_snapshot.status} | {len(sr_snapshot.evidence_by_id)} matched · {len(sr_snapshot.unresolved)} unresolved")
+    st.caption("File update time is not verification of projection or ownership freshness.")
+    st.caption(dvp_status)
+    st.caption(f"DVP salary fingerprint: {slate_digest(dk_file)}")
+    if sr_snapshot.unresolved:
+        st.write("Unresolved StatRankings evidence")
         st.dataframe(pd.DataFrame(sr_snapshot.unresolved), hide_index=True)
-
-
-if unresolved:
-    unresolved_df = join_report.loc[
-        join_report["status"] == "UNRESOLVED"
-    ]
-
-    st.warning(
-        f"{unresolved} projection row(s) did not resolve "
-        "to a DraftKings player. No fuzzy auto-match was used."
-    )
-
-    with st.expander(
-        "Unresolved identity rows",
-        expanded=False,
-    ):
-        show_table(
-            unresolved_df,
-            width="stretch",
-        )
+    if unresolved:
+        st.warning(f"{unresolved} projection rows did not resolve to a DraftKings player. No fuzzy auto-match was used.")
+        show_table(join_report.loc[join_report["status"] == "UNRESOLVED"], width="stretch")
+if with_projection == 0:
+    st.error("No players have resolved projections. Check Data Status before generating.")
 
 
 # ============================================================
@@ -926,241 +598,244 @@ with st.container(border=True):
         unsafe_allow_html=True,
     )
 
-    settings_row = st.columns(
-        [1.35, 1.1, 1.1, 1.2, 1.55, 1.7]
-    )
-
-    with settings_row[0]:
-        preset = st.selectbox(
-            "Preset",
-            options=preset_options,
-            index=preset_options.index(
-                preset
-            ),
-            key="optimizer_preset",
+    settings_tabs = st.tabs(["Build", "Correlation", "Portfolio", "Advanced"])
+    with settings_tabs[0]:
+        settings_row = st.columns(
+            [1.35, 1.1, 1.1, 1.2, 1.55]
         )
 
-    if preset == "RAW BASELINE":
-        settings = raw_baseline()
-
-    elif preset == "DISCOVERY":
-        settings = discovery_example()
-
-    else:
-        settings = OptimizerSettings()
-
-    with settings_row[1]:
-        settings.num_lineups = (
-            st.number_input(
-                "Candidate Lineups",
-                min_value=1,
-                max_value=2000,
-                value=int(
-                    settings.num_lineups
+        with settings_row[0]:
+            preset = st.selectbox(
+                "Preset",
+                options=preset_options,
+                index=preset_options.index(
+                    preset
                 ),
-                step=1,
+                key="optimizer_preset",
             )
-        )
 
-    with settings_row[2]:
-        settings.minimum_uniques = (
-            st.number_input(
-                "Minimum Uniques",
-                min_value=1,
-                max_value=9,
-                value=int(
-                    settings.minimum_uniques
-                ),
-                step=1,
-            )
-        )
+        if preset == "RAW BASELINE":
+            settings = raw_baseline()
 
-    with settings_row[3]:
-        settings.minimum_salary = (
-            st.number_input(
-                "Minimum Salary",
-                min_value=0,
-                max_value=50000,
-                value=int(
-                    settings.minimum_salary
-                ),
-                step=100,
-            )
-        )
+        elif preset == "DISCOVERY":
+            settings = discovery_example()
 
-    with settings_row[4]:
-        settings.randomization_pct = (
-            st.slider(
-                "Randomization",
-                min_value=0,
-                max_value=50,
-                value=int(
-                    round(
-                        settings.randomization_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-    generate_placeholder = settings_row[5]
-
-
-    st.markdown(
-        '<div class="dc-section-label">'
-        'Stacking & Correlation'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    correlation_row = st.columns(
-        [1, 1, 1.15, 1.15, 1.35, 1.35]
-    )
-
-    with correlation_row[0]:
-        settings.qb_stack_min = (
-            st.number_input(
-                "QB Stack Min",
-                min_value=0,
-                max_value=4,
-                value=int(
-                    settings.qb_stack_min
-                ),
-                step=1,
-            )
-        )
-
-    with correlation_row[1]:
-        settings.qb_stack_max = (
-            st.number_input(
-                "QB Stack Max",
-                min_value=0,
-                max_value=4,
-                value=min(
-                    int(
-                        settings.qb_stack_max
-                    ),
-                    4,
-                ),
-                step=1,
-            )
-        )
-
-    with correlation_row[2]:
-        settings.require_bringback = (
-            st.toggle(
-                "Require Bring-Back",
-                value=(
-                    settings.require_bringback
-                ),
-            )
-        )
-
-    with correlation_row[3]:
-        settings.require_secondary_stack = (
-            st.toggle(
-                "Secondary Stack",
-                value=(
-                    settings.require_secondary_stack
-                ),
-            )
-        )
-
-    with correlation_row[4]:
-        settings.sim_same_team_pct = (
-            st.slider(
-                "Same-Team SIM",
-                min_value=0,
-                max_value=50,
-                value=int(
-                    round(
-                        settings.sim_same_team_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-    with correlation_row[5]:
-        settings.sim_opponent_pct = (
-            st.slider(
-                "Opponent SIM",
-                min_value=0,
-                max_value=30,
-                value=int(
-                    round(
-                        settings.sim_opponent_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-
-    # --------------------------------------------------------
-    # PORTFOLIO CONTROLS
-    # High-frequency controls stay visible instead of being buried.
-    # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="dc-section-label">Portfolio Controls</div>',
-        unsafe_allow_html=True,
-    )
-
-    portfolio_controls = st.columns([2.2, 1, 1, 1])
-
-    with portfolio_controls[0]:
-        if ownership_complete:
-            ownership_bounds = st.slider(
-                "Total Lineup Ownership",
-                min_value=0,
-                max_value=900,
-                value=(0, 900),
-                step=5,
-                format="%d%%",
-                help=(
-                    "Cumulative projected ownership across all nine lineup slots. "
-                    "Leave at the full range to keep the constraint off."
-                ),
-                key="total_lineup_ownership_range_v3",
-            )
-            if ownership_bounds != (0, 900):
-                settings.ownership_min = float(ownership_bounds[0])
-                settings.ownership_max = float(ownership_bounds[1])
         else:
-            st.slider(
-                "Total Lineup Ownership",
-                min_value=0,
-                max_value=900,
-                value=(0, 900),
-                step=5,
-                format="%d%%",
-                disabled=True,
-                help="Projected ownership is not available in the current projection source.",
-                key="total_lineup_ownership_unavailable_v3",
-            )
-            st.caption("Waiting for projected ownership data.")
+            settings = OptimizerSettings()
 
-    for column, position in zip(portfolio_controls[1:], ["RB", "WR", "TE"]):
-        with column:
-            flex_pct = st.number_input(
-                f"{position} FLEX Max %",
-                min_value=0,
-                max_value=100,
-                value=int(settings.flex_position_caps[position] * 100),
-                step=5,
-                key=f"flex_cap_{position.lower()}_v3",
+        with settings_row[1]:
+            settings.num_lineups = (
+                st.number_input(
+                    "Candidate Lineups",
+                    min_value=1,
+                    max_value=2000,
+                    value=int(
+                        settings.num_lineups
+                    ),
+                    step=1,
+                )
             )
-            settings.flex_position_caps[position] = float(flex_pct) / 100.0
+
+        with settings_row[2]:
+            settings.minimum_uniques = (
+                st.number_input(
+                    "Minimum Uniques",
+                    min_value=1,
+                    max_value=9,
+                    value=int(
+                        settings.minimum_uniques
+                    ),
+                    step=1,
+                )
+            )
+
+        with settings_row[3]:
+            settings.minimum_salary = (
+                st.number_input(
+                    "Minimum Salary",
+                    min_value=0,
+                    max_value=50000,
+                    value=int(
+                        settings.minimum_salary
+                    ),
+                    step=100,
+                )
+            )
+
+        with settings_row[4]:
+            settings.randomization_pct = (
+                st.slider(
+                    "Randomization",
+                    min_value=0,
+                    max_value=50,
+                    value=int(
+                        round(
+                            settings.randomization_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+
+
+    with settings_tabs[1]:
+        st.markdown(
+            '<div class="dc-section-label">'
+            'Stacking & Correlation'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        correlation_row = st.columns(
+            [1, 1, 1.15, 1.15, 1.35, 1.35]
+        )
+
+        with correlation_row[0]:
+            settings.qb_stack_min = (
+                st.number_input(
+                    "QB Stack Min",
+                    min_value=0,
+                    max_value=4,
+                    value=int(
+                        settings.qb_stack_min
+                    ),
+                    step=1,
+                )
+            )
+
+        with correlation_row[1]:
+            settings.qb_stack_max = (
+                st.number_input(
+                    "QB Stack Max",
+                    min_value=0,
+                    max_value=4,
+                    value=min(
+                        int(
+                            settings.qb_stack_max
+                        ),
+                        4,
+                    ),
+                    step=1,
+                )
+            )
+
+        with correlation_row[2]:
+            settings.require_bringback = (
+                st.toggle(
+                    "Require Bring-Back",
+                    value=(
+                        settings.require_bringback
+                    ),
+                )
+            )
+
+        with correlation_row[3]:
+            settings.require_secondary_stack = (
+                st.toggle(
+                    "Secondary Stack",
+                    value=(
+                        settings.require_secondary_stack
+                    ),
+                )
+            )
+
+        with correlation_row[4]:
+            settings.sim_same_team_pct = (
+                st.slider(
+                    "Same-Team SIM",
+                    min_value=0,
+                    max_value=50,
+                    value=int(
+                        round(
+                            settings.sim_same_team_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+        with correlation_row[5]:
+            settings.sim_opponent_pct = (
+                st.slider(
+                    "Opponent SIM",
+                    min_value=0,
+                    max_value=30,
+                    value=int(
+                        round(
+                            settings.sim_opponent_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+
+    with settings_tabs[2]:
+        # --------------------------------------------------------
+        # PORTFOLIO CONTROLS
+        # High-frequency controls stay visible instead of being buried.
+        # --------------------------------------------------------
+
+        st.markdown(
+            '<div class="dc-section-label">Portfolio Controls</div>',
+            unsafe_allow_html=True,
+        )
+
+        portfolio_controls = st.columns([2.2, 1, 1, 1])
+
+        with portfolio_controls[0]:
+            if ownership_complete:
+                ownership_bounds = st.slider(
+                    "Total Lineup Ownership",
+                    min_value=0,
+                    max_value=900,
+                    value=(0, 900),
+                    step=5,
+                    format="%d%%",
+                    help=(
+                        "Cumulative projected ownership across all nine lineup slots. "
+                        "Leave at the full range to keep the constraint off."
+                    ),
+                    key="total_lineup_ownership_range_v3",
+                )
+                if ownership_bounds != (0, 900):
+                    settings.ownership_min = float(ownership_bounds[0])
+                    settings.ownership_max = float(ownership_bounds[1])
+            else:
+                st.slider(
+                    "Total Lineup Ownership",
+                    min_value=0,
+                    max_value=900,
+                    value=(0, 900),
+                    step=5,
+                    format="%d%%",
+                    disabled=True,
+                    help="Projected ownership is not available in the current projection source.",
+                    key="total_lineup_ownership_unavailable_v3",
+                )
+                st.caption("Waiting for projected ownership data.")
+
+        for column, position in zip(portfolio_controls[1:], ["RB", "WR", "TE"]):
+            with column:
+                flex_pct = st.number_input(
+                    f"{position} FLEX Max %",
+                    min_value=0,
+                    max_value=100,
+                    value=int(settings.flex_position_caps[position] * 100),
+                    step=5,
+                    key=f"flex_cap_{position.lower()}_v3",
+                )
+                settings.flex_position_caps[position] = float(flex_pct) / 100.0
 
     # --------------------------------------------------------
     # CONSTRUCTION RULES / DIAGNOSTICS
@@ -1169,113 +844,114 @@ with st.container(border=True):
 
     settings.statrankings_edge_by_id = sr_snapshot.edge_by_id
 
-    with st.expander(
-        "Construction Rules & Diagnostics",
-        expanded=False,
-    ):
-        construction_cols = st.columns([1.25, 1, 1.7, 1.45, 1.45])
+    with settings_tabs[3]:
+        with st.expander(
+            "Construction Rules & Diagnostics",
+            expanded=False,
+        ):
+            construction_cols = st.columns([1.25, 1, 1.7, 1.45, 1.45])
 
-        with construction_cols[0]:
-            settings.statrankings_influence = st.selectbox(
-                "StatRankings Influence",
-                options=["OFF", "LOW", "MEDIUM", "HIGH"],
-                index=0,
-                help=(
-                    "LOW max ±0.5%, MEDIUM ±1.0%, HIGH ±2.0%; "
-                    "objective only, never stored projection."
-                ),
-                key="sr_influence_v3",
-            )
-
-        with construction_cols[1]:
-            settings.random_seed = st.number_input(
-                "Random Seed",
-                min_value=0,
-                max_value=999999,
-                value=int(settings.random_seed),
-                step=1,
-                help="Only matters when Randomization is above 0%.",
-                key="random_seed_v3",
-            )
-
-        with construction_cols[2]:
-            offense_vs_dst = st.selectbox(
-                "Max offense vs opposing DST",
-                options=["OFF", 0, 1, 2, 3, 4, 5, 6, 7, 8],
-                key="offense_vs_dst_v3",
-            )
-            if offense_vs_dst != "OFF":
-                settings.max_offense_vs_opposing_dst = int(offense_vs_dst)
-
-        with construction_cols[3]:
-            qb_rb = st.selectbox(
-                "Max same-team RB with QB",
-                options=["OFF", 0, 1, 2, 3],
-                key="qb_rb_v3",
-            )
-            if qb_rb != "OFF":
-                settings.max_qb_with_same_team_rb = int(qb_rb)
-
-        with construction_cols[4]:
-            qb_dst = st.selectbox(
-                "Max same-team DST with QB",
-                options=["OFF", 0, 1],
-                key="qb_dst_v3",
-            )
-            if qb_dst != "OFF":
-                settings.max_qb_with_same_team_dst = int(qb_dst)
-
-    # Position Exposure Caps are intentionally not exposed here anymore.
-    # The optimizer capability remains available in config.py, but the UI now
-    # uses the Player Pool position-tab group Min/Max controls for exposure work.
-
-    with st.expander(
-        "Decision / Intervention Log",
-        expanded=False,
-    ):
-        intervention_cols = st.columns(4)
-
-        with intervention_cols[0]:
-            reason = st.text_input("Reason / hypothesis")
-
-        with intervention_cols[1]:
-            evidence = st.text_input("Evidence delta")
-
-        with intervention_cols[2]:
-            counterargument = st.text_input("Strongest counterargument")
-
-        with intervention_cols[3]:
-            invalidation = st.text_input("Invalidation trigger")
-
-        log_left, reset_right = st.columns([1, 1])
-
-        with log_left:
-            if st.button(
-                "Log Intervention",
-                width="stretch",
-            ):
-                st.session_state.intervention_log.append(
-                    {
-                        "reason": reason,
-                        "evidence_delta": evidence,
-                        "counterargument": counterargument,
-                        "invalidation_trigger": invalidation,
-                    }
+            with construction_cols[0]:
+                settings.statrankings_influence = st.selectbox(
+                    "StatRankings Influence",
+                    options=["OFF", "LOW", "MEDIUM", "HIGH"],
+                    index=0,
+                    help=(
+                        "LOW max ±0.5%, MEDIUM ±1.0%, HIGH ±2.0%; "
+                        "objective only, never stored projection."
+                    ),
+                    key="sr_influence_v3",
                 )
 
-        with reset_right:
-            if st.button(
-                "Reset Instructions",
-                width="stretch",
-            ):
-                st.info("Select RAW BASELINE above before regenerating.")
+            with construction_cols[1]:
+                settings.random_seed = st.number_input(
+                    "Random Seed",
+                    min_value=0,
+                    max_value=999999,
+                    value=int(settings.random_seed),
+                    step=1,
+                    help="Only matters when Randomization is above 0%.",
+                    key="random_seed_v3",
+                )
 
-        if st.session_state.intervention_log:
-            show_table(
-                pd.DataFrame(st.session_state.intervention_log),
-                width="stretch",
-                hide_index=True,
-            )
+            with construction_cols[2]:
+                offense_vs_dst = st.selectbox(
+                    "Max offense vs opposing DST",
+                    options=["OFF", 0, 1, 2, 3, 4, 5, 6, 7, 8],
+                    key="offense_vs_dst_v3",
+                )
+                if offense_vs_dst != "OFF":
+                    settings.max_offense_vs_opposing_dst = int(offense_vs_dst)
+
+            with construction_cols[3]:
+                qb_rb = st.selectbox(
+                    "Max same-team RB with QB",
+                    options=["OFF", 0, 1, 2, 3],
+                    key="qb_rb_v3",
+                )
+                if qb_rb != "OFF":
+                    settings.max_qb_with_same_team_rb = int(qb_rb)
+
+            with construction_cols[4]:
+                qb_dst = st.selectbox(
+                    "Max same-team DST with QB",
+                    options=["OFF", 0, 1],
+                    key="qb_dst_v3",
+                )
+                if qb_dst != "OFF":
+                    settings.max_qb_with_same_team_dst = int(qb_dst)
+
+        # Position Exposure Caps are intentionally not exposed here anymore.
+        # The optimizer capability remains available in config.py, but the UI now
+        # uses the Player Pool position-tab group Min/Max controls for exposure work.
+
+        with st.expander(
+            "Decision / Intervention Log",
+            expanded=False,
+        ):
+            intervention_cols = st.columns(4)
+
+            with intervention_cols[0]:
+                reason = st.text_input("Reason / hypothesis")
+
+            with intervention_cols[1]:
+                evidence = st.text_input("Evidence delta")
+
+            with intervention_cols[2]:
+                counterargument = st.text_input("Strongest counterargument")
+
+            with intervention_cols[3]:
+                invalidation = st.text_input("Invalidation trigger")
+
+            log_left, reset_right = st.columns([1, 1])
+
+            with log_left:
+                if st.button(
+                    "Log Intervention",
+                    width="stretch",
+                ):
+                    st.session_state.intervention_log.append(
+                        {
+                            "reason": reason,
+                            "evidence_delta": evidence,
+                            "counterargument": counterargument,
+                            "invalidation_trigger": invalidation,
+                        }
+                    )
+
+            with reset_right:
+                if st.button(
+                    "Reset Instructions",
+                    width="stretch",
+                ):
+                    st.info("Select RAW BASELINE above before regenerating.")
+
+            if st.session_state.intervention_log:
+                show_table(
+                    pd.DataFrame(st.session_state.intervention_log),
+                    width="stretch",
+                    hide_index=True,
+                )
 
 
 # ============================================================
@@ -1389,104 +1065,6 @@ with st.container(border=True):
         key="active_position",
         label_visibility="collapsed",
     )
-
-    # --------------------------------------------------------
-    # POSITION-WIDE EXPOSURE CONTROLS
-    # The active position tab is the bulk-edit target. There is
-    # deliberately no second position selector.
-    # --------------------------------------------------------
-
-    if active_position in {"QB", "RB", "WR", "TE", "DST"}:
-        position_players = [
-            player
-            for player in available
-            if player.position == active_position
-        ]
-
-        # Default the compact controls to the common value currently used by
-        # the active position. If players already have mixed overrides, show
-        # neutral defaults (0/100) until the user explicitly applies a group
-        # value. Individual row overrides remain untouched until Apply.
-        current_mins = {
-            int(st.session_state.player_controls[int(player.dk_id)]["Min %"])
-            for player in position_players
-        }
-        current_maxes = {
-            int(st.session_state.player_controls[int(player.dk_id)]["Max %"])
-            for player in position_players
-        }
-
-        default_group_min = next(iter(current_mins)) if len(current_mins) == 1 else 0
-        default_group_max = next(iter(current_maxes)) if len(current_maxes) == 1 else 100
-
-        group_cols = st.columns([1.2, 0.8, 0.8, 0.95, 0.95, 3.4])
-
-        with group_cols[0]:
-            st.markdown(
-                f"**{active_position} group exposure**"
-            )
-            st.caption(f"Applies to all {len(position_players)} {active_position} players")
-
-        with group_cols[1]:
-            group_min = st.number_input(
-                f"{active_position} Min %",
-                min_value=0,
-                max_value=100,
-                value=int(default_group_min),
-                step=5,
-                key=f"group_exposure_min_{active_position}",
-            )
-
-        with group_cols[2]:
-            group_max = st.number_input(
-                f"{active_position} Max %",
-                min_value=0,
-                max_value=100,
-                value=int(default_group_max),
-                step=5,
-                key=f"group_exposure_max_{active_position}",
-            )
-
-        with group_cols[3]:
-            st.write("")
-            apply_group_exposure = st.button(
-                "Apply",
-                width="stretch",
-                key=f"apply_group_exposure_{active_position}",
-            )
-
-        with group_cols[4]:
-            st.write("")
-            reset_group_exposure = st.button(
-                "Reset",
-                width="stretch",
-                key=f"reset_group_exposure_{active_position}",
-                on_click=_reset_position_exposure,
-                args=(active_position, [int(p.dk_id) for p in position_players]),
-            )
-
-        if apply_group_exposure:
-            if int(group_min) > int(group_max):
-                st.error("Position minimum exposure cannot exceed maximum exposure.")
-            else:
-                for player in position_players:
-                    controls = st.session_state.player_controls[int(player.dk_id)]
-                    controls["Min %"] = int(group_min)
-                    controls["Max %"] = int(group_max)
-
-                st.success(
-                    f"Applied {active_position} Min {int(group_min)}% / "
-                    f"Max {int(group_max)}% to {len(position_players)} players."
-                )
-                st.rerun()
-
-
-    else:
-        st.caption(
-            "Select QB, RB, WR, TE, or DST above to set Min/Max exposure "
-            "for that entire position group."
-        )
-
 
     # --------------------------------------------------------
     # QUICK FILTERS
@@ -1744,53 +1322,107 @@ with st.container(border=True):
         f"{len(available)} optimizer-eligible players."
     )
 
-    # Preserve Lock capability without a second checkbox column.
-    # In Pool is the only checkbox column in the player table.
-    player_by_id = {int(player.dk_id): player for player in available}
-    current_locked_ids = sorted(
-        dk_id
-        for dk_id, controls in st.session_state.player_controls.items()
-        if controls.get("Lock", False) and dk_id in player_by_id
-    )
+    sort_left, sort_right = st.columns([3, 2])
+    with sort_left:
+        pool_sort = st.selectbox("Sort", ["Salary", "Own %", "Proj", "Base Proj", "Ceiling", "Value", "Player", "DVP", "Min %", "Max %"], key="pool_sort")
+    with sort_right:
+        pool_sort_direction = st.radio("Order", ["High to low", "Low to high"], horizontal=True, key="pool_sort_direction")
+    st.caption("Sort controls persist through edits and generation. Table-header sorting is temporary.")
 
-    selected_locked_ids = st.multiselect(
-        "Locked players",
-        options=sorted(player_by_id),
-        default=current_locked_ids,
-        format_func=lambda pid: (
-            f"{player_by_id[pid].name} — "
-            f"{player_by_id[pid].team} {player_by_id[pid].position}"
-        ),
-        help="Optional. Locked players are forced into every generated lineup.",
-        placeholder="No players locked",
-        key="locked_players_multiselect_v5",
-    )
+    # Preserve existing explicit locks; keep infrequently used controls collapsed.
+    player_by_id = {int(p.dk_id): p for p in available}
+    with st.expander("Advanced player controls", expanded=False):
+        locked_ids = st.multiselect(
+            "Locked players", options=sorted(player_by_id),
+            default=sorted(pid for pid, c in st.session_state.player_controls.items() if c.get("Lock") and pid in player_by_id),
+            format_func=lambda pid: f"{player_by_id[pid].name} · {player_by_id[pid].team}",
+            key="locked_players_multiselect_v5",
+        )
+    for pid, controls in st.session_state.player_controls.items():
+        controls["Lock"] = pid in locked_ids
 
-    selected_locked_ids = {int(pid) for pid in selected_locked_ids}
-    for dk_id, controls in st.session_state.player_controls.items():
-        controls["Lock"] = dk_id in selected_locked_ids
-
-    # DS-style header checkbox: select/deselect every currently shown player.
     visible_ids = [int(player.dk_id) for player in filtered_players]
     all_visible_in_pool = bool(visible_ids) and all(
         not st.session_state.player_controls[dk_id].get("Exclude", False)
         for dk_id in visible_ids
     )
 
+    # DS-style compact table controls. The master pool checkbox acts on the
+    # currently shown rows. Min/Max act on the active position only, matching
+    # the established QB/RB/WR/TE/DST bulk-edit contract.
+    header_controls = st.columns([0.85, 7.15, 1.0, 1.0])
+
     select_all_key = f"in_pool_all_{active_position}"
     st.session_state[select_all_key] = all_visible_in_pool
-    st.checkbox(
-        "In Pool",
-        key=select_all_key,
-        help="Select or deselect every player currently shown below. BAN remains excluded.",
-        on_change=_set_visible_pool,
-        args=(select_all_key, visible_ids),
-    )
+    with header_controls[0]:
+        st.checkbox(
+            "In Pool",
+            key=select_all_key,
+            help="Check or uncheck every player currently shown below. Unchecked players stay visible.",
+            on_change=_set_visible_pool,
+            args=(select_all_key, visible_ids),
+        )
+
+    bulk_positions = {"QB", "RB", "WR", "TE", "DST"}
+    if active_position in bulk_positions:
+        position_ids = [
+            int(player.dk_id)
+            for player in available
+            if player.position == active_position
+        ]
+        current_mins = {
+            int(st.session_state.player_controls[pid]["Min %"])
+            for pid in position_ids
+        }
+        current_maxes = {
+            int(st.session_state.player_controls[pid]["Max %"])
+            for pid in position_ids
+        }
+        min_key = f"group_exposure_min_{active_position}"
+        max_key = f"group_exposure_max_{active_position}"
+        if min_key not in st.session_state:
+            st.session_state[min_key] = next(iter(current_mins)) if len(current_mins) == 1 else 0
+        if max_key not in st.session_state:
+            st.session_state[max_key] = next(iter(current_maxes)) if len(current_maxes) == 1 else 100
+
+        with header_controls[2]:
+            st.number_input(
+                "Min %",
+                min_value=0,
+                max_value=100,
+                step=5,
+                key=min_key,
+                on_change=_apply_position_exposure,
+                args=(active_position, position_ids, "Min %"),
+            )
+        with header_controls[3]:
+            st.number_input(
+                "Max %",
+                min_value=0,
+                max_value=100,
+                step=5,
+                key=max_key,
+                on_change=_apply_position_exposure,
+                args=(active_position, position_ids, "Max %"),
+            )
+    else:
+        with header_controls[2]:
+            st.number_input("Min %", 0, 100, 0, 5, disabled=True, key="all_bulk_min_disabled")
+        with header_controls[3]:
+            st.number_input("Max %", 0, 100, 100, 5, disabled=True, key="all_bulk_max_disabled")
 
 
     # --------------------------------------------------------
     # PLAYER TABLE
     # --------------------------------------------------------
+    # PLAYER TABLE
+    # --------------------------------------------------------
+
+    show_research = st.checkbox("Show research columns", value=False, key="show_research_columns_v5")
+
+    st.caption("DVP · green 1–8 · yellow 9–16 · orange 17–24 · red 25–32 · 1 = easiest. Visual only. Missing = —.")
+    if not dvp_values:
+        st.caption(dvp_status)
 
     pool_rows = []
 
@@ -1802,14 +1434,26 @@ with st.container(border=True):
             ]
         )
 
-        value_score = None
+        # Presentation-only sentiment projection. The canonical source
+        # projection on the Player object is never mutated. This mirrors the
+        # manual sentiment multiplier used in optimizer.py so the Player Pool
+        # visually reflects the user's conviction. BAN remains an exclusion
+        # instruction and does not rewrite projection to zero.
+        base_projection = float(p.projection) if p.projection is not None else None
+        sentiment_state = str(controls.get("Sentiment", "NEUTRAL")).upper()
+        sentiment_adjustment = PLAYER_SENTIMENT_ADJUSTMENT.get(sentiment_state, 0.0)
+        if sentiment_adjustment is None:
+            sentiment_adjustment = 0.0
+        display_projection = (
+            base_projection * (1.0 + float(sentiment_adjustment))
+            if base_projection is not None
+            else None
+        )
 
-        if (
-            p.projection is not None
-            and p.salary
-        ):
+        value_score = None
+        if display_projection is not None and p.salary:
             value_score = (
-                float(p.projection)
+                display_projection
                 / float(p.salary)
                 * 1000.0
             )
@@ -1825,18 +1469,24 @@ with st.container(border=True):
                 "Max %": controls[
                     "Max %"
                 ],
-                "Sentiment": controls.get(
+                "Sentiment": sentiment_display(controls.get(
                     "Sentiment",
                     "NEUTRAL",
-                ),
+                )),
                 "ID": p.dk_id,
                 "Player": p.name,
-                "Team": p.team,
-                "Opp": p.opponent,
+                "Visual": player_visual_uri(p, BASE_DIR / "assets"),
+                "Team": team_cell_uri(p.team, str(BASE_DIR / "assets")),
+                "Opp": team_cell_uri(p.opponent, str(BASE_DIR / "assets")),
+                "Team Abbr": p.team,
+                "Opp Abbr": p.opponent,
+                # Optional, verified display-only DVP; never relabel Matchup_Score.
+                "DVP": dvp_values.get((p.opponent, p.position)),
                 "Pos": p.position,
                 "Salary": p.salary,
-                "Proj": p.projection,
-                "Own %": p.ownership,
+                "Proj": display_projection,
+                "Base Proj": base_projection,
+                "Own %": None if p.ownership is None else float(p.ownership),
                 "Value": value_score,
                 "Ceiling": p.ceiling,
                 "Role": sr_snapshot.evidence_by_id.get(p.dk_id, {}).get("Role_Score"),
@@ -1850,41 +1500,55 @@ with st.container(border=True):
         )
 
 
-    pool_df = pd.DataFrame(
-        pool_rows,
-        columns=[
-            "In Pool",
-            "Min %",
-            "Max %",
-            "Sentiment",
-            "ID",
-            "Player",
-            "Team",
-            "Opp",
-            "Pos",
-            "Salary",
-            "Proj",
-            "Own %",
-            "Value",
-            "Ceiling",
-            "Role",
-            "Form",
-            "Matchup",
-            "Env",
-            "Edge",
-            "Injury",
-            "Status",
-        ],
-    )
+    pool_df = pd.DataFrame(pool_rows, columns=[
+        "In Pool", "Visual", "Player", "Team", "Opp", "DVP", "Pos", "Salary", "Proj",
+        "Own %", "Ceiling", "Value", "Sentiment", "Min %", "Max %", "ID",
+        "Base Proj", "Team Abbr", "Opp Abbr", "Role", "Form", "Matchup", "Env", "Edge", "Injury", "Status",
+    ])
+    display_columns = ["In Pool", "Visual", "Player", "Pos", "Team", "Opp", "DVP", "Salary",
+                       "Proj", "Own %", "Ceiling", "Value", "Sentiment", "Min %", "Max %"]
+    if show_research:
+        display_columns += ["ID", "Team Abbr", "Opp Abbr", "Base Proj", "Role", "Form", "Matchup", "Env", "Edge", "Injury", "Status"]
 
+    def _projection_sentiment_style(row):
+        styles = ["" for _ in row.index]
+        if "Proj" not in row.index or "Base Proj" not in row.index:
+            return styles
 
-    editor_key = f"player_pool_editor_v5_{st.session_state.get('pool_editor_revision', 0)}"
+        proj = row.get("Proj")
+        base = row.get("Base Proj")
+        if pd.isna(proj) or pd.isna(base):
+            return styles
+
+        proj_idx = row.index.get_loc("Proj")
+        if float(proj) > float(base) + 1e-9:
+            styles[proj_idx] = (
+                "background-color: rgba(54, 201, 143, 0.22); "
+                "color: #7BE0B7; font-weight: 800;"
+            )
+        elif float(proj) < float(base) - 1e-9:
+            styles[proj_idx] = (
+                "background-color: rgba(241, 100, 100, 0.22); "
+                "color: #FF9B9B; font-weight: 800;"
+            )
+        return styles
+
+    pool_df = sort_pool(pool_df, pool_sort, pool_sort_direction == "High to low")
+    editor_ids = [int(pid) for pid in pool_df["ID"]]
+    styled_pool_df = pool_df.style.apply(_projection_sentiment_style, axis=1).map(dvp_style, subset=["DVP"]).format(na_rep="—")
+
+    # Changing row order must discard old row-index deltas; edits still commit by ID.
+    order_token = hashlib.sha256(repr((editor_ids, pool_sort, pool_sort_direction)).encode()).hexdigest()[:12]
+    editor_key = f"player_pool_editor_v6_{order_token}_{st.session_state.get('pool_editor_revision', 0)}"
     edited_pool_df = st.data_editor(
-        pool_df,
+        styled_pool_df,
         width="stretch",
-        height=560,
+        height=455,
+        row_height=28,
+        column_order=display_columns,
         hide_index=True,
         disabled=[
+            "Visual", "DVP", "Team Abbr", "Opp Abbr",
             "ID",
             "Player",
             "Team",
@@ -1892,6 +1556,7 @@ with st.container(border=True):
             "Pos",
             "Salary",
             "Proj",
+            "Base Proj",
             "Own %",
             "Value",
             "Ceiling",
@@ -1916,19 +1581,23 @@ with st.container(border=True):
                 )
             ),
 
-            "Sentiment": (
-                st.column_config.SelectboxColumn(
-                    "Sentiment",
-                    options=PLAYER_SENTIMENT_OPTIONS,
-                    default="NEUTRAL",
-                    help=(
-                        "Objective-only manual conviction: ADORE +10%, "
-                        "LOVE +7.5%, LIKE +5%, NEUTRAL 0%, DISLIKE -5%, "
-                        "HATE -10%, BAN excludes. Stored projection is unchanged."
-                    ),
-                )
+            "Visual": st.column_config.ImageColumn("", width=35),
+            "Player": st.column_config.TextColumn("Player", width="medium"),
+            "Team": st.column_config.ImageColumn("Team", width=90, help="Slate team logo and abbreviation. Text also available in research columns."),
+            "Opp": st.column_config.ImageColumn("Opp", width=90, help="Slate opponent logo and abbreviation."),
+            "DVP": st.column_config.NumberColumn(
+                "DVP",
+                width="small",
+                format="%d",
+                help="Visual only, never used by optimizer. Verified rank: 1 easiest, 32 hardest. Green 1–8, yellow 9–16, orange 17–24, red 25–32. Missing stays blank.",
             ),
-
+            "Sentiment": st.column_config.SelectboxColumn(
+                "Sentiment",
+                options=[sentiment_display(state) for state in PLAYER_SENTIMENT_OPTIONS],
+                required=True,
+                width="small",
+                help="Objective-only sentiment adjustment; displayed projection remains unchanged.",
+            ),
             "Min %": (
                 st.column_config.NumberColumn(
                     "Min %",
@@ -1936,6 +1605,7 @@ with st.container(border=True):
                     max_value=100,
                     step=5,
                     format="%d%%",
+                    width="small",
                 )
             ),
 
@@ -1946,6 +1616,7 @@ with st.container(border=True):
                     max_value=100,
                     step=5,
                     format="%d%%",
+                    width="small",
                 )
             ),
 
@@ -1967,14 +1638,27 @@ with st.container(border=True):
                 st.column_config.NumberColumn(
                     "Proj",
                     format="%.2f",
+                    help=(
+                        "Projection shown with your manual sentiment adjustment applied. "
+                        "The original source projection is preserved internally and is "
+                        "available under Show research columns as Base Proj."
+                    ),
                 )
             ),
 
-            "Own %": (
+            "Base Proj": (
                 st.column_config.NumberColumn(
-                    "Own %",
-                    format="%.1f",
+                    "Base Proj",
+                    format="%.2f",
+                    help="Original source projection before manual sentiment.",
                 )
+            ),
+
+            "Own %": st.column_config.NumberColumn(
+                "Own %",
+                format="%.1f",
+                width="small",
+                help="Projected ownership; numeric sorting is preserved.",
             ),
 
             "Value": (
@@ -1982,18 +1666,13 @@ with st.container(border=True):
                     "Value",
                     format="%.2f",
                     help=(
-                        "Projection points per "
+                        "Displayed sentiment-adjusted projection points per "
                         "$1,000 salary."
                     ),
                 )
             ),
 
-            "Ceiling": (
-                st.column_config.NumberColumn(
-                    "Ceiling",
-                    format="%.2f",
-                )
-            ),
+            "Ceiling": st.column_config.NumberColumn("Ceiling", format="%.2f", width="small"),
 
             "Role": st.column_config.NumberColumn("Role", format="%.2f"),
             "Form": st.column_config.NumberColumn("Form", format="%.2f"),
@@ -2003,7 +1682,7 @@ with st.container(border=True):
         },
         key=editor_key,
         on_change=_save_pool_edits,
-        args=(editor_key, visible_ids),
+        args=(editor_key, editor_ids),
     )
 
 
@@ -2041,7 +1720,7 @@ for _, row in edited_pool_df.iterrows():
     )
 
     existing_controls = st.session_state.player_controls[dk_id]
-    sentiment = str(row["Sentiment"]).upper()
+    sentiment = _sentiment_state(row["Sentiment"])
 
     st.session_state.player_controls[
         dk_id
@@ -2198,37 +1877,10 @@ settings.player_sentiment_by_id = {
 # PLAYER CONTROL SUMMARY
 # ============================================================
 
-control_cols = st.columns(4)
-
-control_cols[0].metric(
-    "Locked",
-    len(
-        settings.lock_players
-    ),
-)
-
-control_cols[1].metric(
-    "Excluded",
-    len(
-        settings.exclude_players
-    ),
-)
-
-control_cols[2].metric(
-    "Exposure Overrides",
-    len(
-        set(
-            settings.player_min_exposure
-        )
-        | set(
-            settings.player_max_exposure
-        )
-    ),
-)
-
-control_cols[3].metric(
-    "Projection Coverage",
-    f"{with_projection}/{len(players)}",
+st.caption(
+    f"{len(settings.exclude_players)} excluded · "
+    f"{len(set(settings.player_min_exposure) | set(settings.player_max_exposure))} exposure overrides · "
+    f"{with_projection}/{len(players)} projected"
 )
 
 
@@ -2250,12 +1902,11 @@ if missing_projection_players:
 # GENERATE
 # ============================================================
 
-with generate_placeholder:
-
-    st.write("")
+with st.container(key="generate_action"):
 
     generate_clicked = st.button(
-        "▶ Generate Lineups",
+        f"{'REGENERATE' if 'generation_result' in st.session_state else 'GENERATE'} {settings.num_lineups} LINEUPS",
+        key="generate_lineups",
         type="primary",
         width="stretch",
     )
@@ -2300,6 +1951,7 @@ if generate_clicked:
             "generation_settings"
         ] = settings
 
+        st.session_state["generated_portfolio_review_position"] = st.session_state.active_position
         st.session_state["generation_restored_from_cache"] = False
         st.session_state.pop("selected_lineups", None)
         st.session_state.pop("contest_allocations", None)
@@ -2422,12 +2074,10 @@ with st.container(border=True):
 
     tabs = st.tabs(
         [
-            "Lineups",
-            "Player Exposures",
-            "Stack Analysis",
-            "Portfolio",
-            "Stories",
-            "Final Selection",
+            "Portfolio Review",
+            "Stacks & Games",
+            "Portfolio Risk",
+            "Repetition",
             "Export",
         ]
     )
@@ -2439,80 +2089,68 @@ with st.container(border=True):
 
     with tabs[0]:
 
-        lineup_view_position = st.radio(
-            "Lineup position view",
+        review_position = st.radio(
+            "Portfolio review position",
             options=["ALL", "QB", "RB", "WR", "TE", "DST"],
             horizontal=True,
-            key="generated_lineup_position_view",
+            key="generated_portfolio_review_position",
             label_visibility="collapsed",
         )
 
-        if lineup_view_position == "ALL":
-            st.caption(
-                "Full roster view. Select a position to scan that position across every generated lineup."
-            )
-        else:
-            st.caption(
-                f"{lineup_view_position} view across all {len(lineups)} generated lineups."
-            )
-
-        show_table(
-            position_lineup_table(
-                lineups,
-                lineup_view_position,
-            ),
-            width="stretch",
-            height=600,
+        st.caption(
+            "Review exposure and how the generated lineups use that position in one place. "
+            "Click any table header to sort."
         )
 
+        review_exposure = player_exposure(lineups).copy()
+        if review_position != "ALL":
+            review_exposure = review_exposure.loc[
+                review_exposure["Position"] == review_position
+            ].copy()
 
-    # --------------------------------------------------------
-    # PLAYER EXPOSURES
-    # --------------------------------------------------------
+        control_lookup = {
+            (player.name, player.position, player.team): st.session_state.player_controls.get(int(player.dk_id), {})
+            for player in available
+        }
+        review_exposure["Min %"] = [
+            int(control_lookup.get((row.Name, row.Position, row.Team), {}).get("Min %", 0))
+            for row in review_exposure.itertuples(index=False)
+        ]
+        review_exposure["Max %"] = [
+            int(control_lookup.get((row.Name, row.Position, row.Team), {}).get("Max %", 100))
+            for row in review_exposure.itertuples(index=False)
+        ]
 
-    with tabs[1]:
+        review_left, review_right = st.columns([1.0, 2.25])
 
-        exp_left, exp_mid, exp_right = (
-            st.columns(3)
-        )
-
-        with exp_left:
-
+        with review_left:
             st.markdown(
-                "### Player Exposure"
+                f"### {'All Player' if review_position == 'ALL' else review_position} Exposure"
             )
-
+            exposure_columns = [
+                "Name", "Team", "Position", "Count", "Exposure", "Min %", "Max %"
+            ]
             show_table(
-                player_exposure(
-                    lineups
-                ),
+                review_exposure[exposure_columns],
                 width="stretch",
+                height=560,
             )
 
-        with exp_mid:
+            if review_position == "ALL":
+                st.markdown("#### FLEX Mix")
+                show_table(
+                    flex_distribution(lineups),
+                    width="stretch",
+                )
 
+        with review_right:
             st.markdown(
-                "### QB Exposure"
+                f"### {'Full Lineups' if review_position == 'ALL' else review_position + ' Usage'} · {len(lineups)} generated"
             )
-
             show_table(
-                qb_exposure(
-                    lineups
-                ),
+                position_lineup_table(lineups, review_position),
                 width="stretch",
-            )
-
-        with exp_right:
-
-            st.markdown(
-                "### FLEX Distribution"
-            )
-
-            show_table(
-                flex_distribution(
-                    lineups
-                ),
-                width="stretch",
+                height=620,
             )
 
 
@@ -2520,7 +2158,7 @@ with st.container(border=True):
     # STACK ANALYSIS
     # --------------------------------------------------------
 
-    with tabs[2]:
+    with tabs[3]:
 
         stack_left, stack_right = (
             st.columns(2)
@@ -2560,7 +2198,7 @@ with st.container(border=True):
     # PORTFOLIO
     # --------------------------------------------------------
 
-    with tabs[3]:
+    with tabs[2]:
 
         st.markdown(
             "### Portfolio Summary"
@@ -2586,7 +2224,7 @@ with st.container(border=True):
     # STORIES
     # --------------------------------------------------------
 
-    with tabs[4]:
+    with tabs[1]:
 
         st.markdown(
             "### QB / Game / Stack Story Families"
@@ -2609,7 +2247,7 @@ with st.container(border=True):
     # FINAL SELECTION
     # --------------------------------------------------------
 
-    with tabs[5]:
+    with tabs[2]:
 
         st.markdown(
             "### Outcome-Blind Final Selection"
@@ -2773,7 +2411,7 @@ with st.container(border=True):
     # EXPORT
     # --------------------------------------------------------
 
-    with tabs[6]:
+    with tabs[4]:
 
         st.markdown(
             "### DraftKings Export"

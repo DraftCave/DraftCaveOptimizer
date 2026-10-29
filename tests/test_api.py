@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 from backend.api import app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_slate(slate_dir, monkeypatch):
+    monkeypatch.chdir(slate_dir.parent)
 
 
 def test_root():
