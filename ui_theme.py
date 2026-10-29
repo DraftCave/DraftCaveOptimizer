@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 
-DRAFT_CAVE_GOLD = "#F4BE45"
-DRAFT_CAVE_GOLD_HOVER = "#FFD56B"
-DRAFT_CAVE_BG = "#071018"
-DRAFT_CAVE_PANEL = "#0C1721"
-DRAFT_CAVE_PANEL_ALT = "#101D28"
-DRAFT_CAVE_BORDER = "#24323E"
-DRAFT_CAVE_TEXT = "#EEF3F7"
-DRAFT_CAVE_MUTED = "#8A99A7"
+# Draft Cave visual system: black / midnight navy / cool blue first.
+# Gold is intentionally reserved for premium emphasis, never the core interaction color.
+DRAFT_CAVE_BG = "#050A0F"
+DRAFT_CAVE_BG_ALT = "#07111F"
+DRAFT_CAVE_PANEL = "#0D1B2A"
+DRAFT_CAVE_PANEL_ALT = "#13283D"
+DRAFT_CAVE_BORDER = "#1D3550"
+DRAFT_CAVE_BLUE = "#1EA7FF"
+DRAFT_CAVE_BLUE_HOVER = "#4DB9FF"
+DRAFT_CAVE_BLUE_MUTED = "#6CBDF2"
+DRAFT_CAVE_GOLD = "#D8A84E"
+DRAFT_CAVE_TEXT = "#EAF2FA"
+DRAFT_CAVE_MUTED = "#8296AD"
 DRAFT_CAVE_GREEN = "#36C98F"
 DRAFT_CAVE_RED = "#F16464"
 DRAFT_CAVE_AMBER = "#E6A93E"
@@ -17,19 +22,22 @@ DRAFT_CAVE_AMBER = "#E6A93E"
 def app_css() -> str:
     """Return presentation-only CSS for the Streamlit application.
 
-    Gold is reserved for selected/action states. Green/red/amber are reserved
-    for status and movement signals, not decorative styling.
+    Blue is the primary interaction accent. Gold is reserved for premium or
+    special emphasis only. Green/red/amber remain semantic status colors.
     """
 
     return f"""
     <style>
     :root {{
-        --dc-gold: {DRAFT_CAVE_GOLD};
-        --dc-gold-hover: {DRAFT_CAVE_GOLD_HOVER};
         --dc-bg: {DRAFT_CAVE_BG};
+        --dc-bg-alt: {DRAFT_CAVE_BG_ALT};
         --dc-panel: {DRAFT_CAVE_PANEL};
         --dc-panel-alt: {DRAFT_CAVE_PANEL_ALT};
         --dc-border: {DRAFT_CAVE_BORDER};
+        --dc-blue: {DRAFT_CAVE_BLUE};
+        --dc-blue-hover: {DRAFT_CAVE_BLUE_HOVER};
+        --dc-blue-muted: {DRAFT_CAVE_BLUE_MUTED};
+        --dc-gold: {DRAFT_CAVE_GOLD};
         --dc-text: {DRAFT_CAVE_TEXT};
         --dc-muted: {DRAFT_CAVE_MUTED};
         --dc-green: {DRAFT_CAVE_GREEN};
@@ -38,12 +46,14 @@ def app_css() -> str:
     }}
 
     .stApp {{
-        background: linear-gradient(180deg, #071018 0%, #08121B 48%, #060D13 100%);
+        background:
+            radial-gradient(circle at top left, rgba(30, 167, 255, 0.10), transparent 28%),
+            linear-gradient(180deg, var(--dc-bg-alt) 0%, #07101A 48%, var(--dc-bg) 100%);
         color: var(--dc-text);
     }}
 
     [data-testid="stHeader"] {{
-        background: rgba(7, 16, 24, 0.88);
+        background: rgba(5, 10, 15, 0.88);
     }}
 
     [data-testid="stMainBlockContainer"] {{
@@ -56,7 +66,7 @@ def app_css() -> str:
 
     [data-testid="stVerticalBlockBorderWrapper"] {{
         border-color: var(--dc-border) !important;
-        background: rgba(12, 23, 33, 0.94);
+        background: rgba(13, 27, 42, 0.94);
         border-radius: 12px;
     }}
 
@@ -68,6 +78,10 @@ def app_css() -> str:
     }}
 
     .dc-section-label,
+    .dc-blue {{
+        color: var(--dc-blue);
+    }}
+
     .dc-gold {{
         color: var(--dc-gold);
     }}
@@ -79,53 +93,53 @@ def app_css() -> str:
     .stButton > button {{
         border-radius: 8px;
         border: 1px solid var(--dc-border);
-        background: #0C1923;
-        color: #DDE6EC;
+        background: #0B1724;
+        color: #DDE8F2;
         min-height: 2.25rem;
         font-weight: 650;
     }}
 
     .stButton > button:hover {{
-        border-color: var(--dc-gold);
+        border-color: var(--dc-blue);
         color: #FFFFFF;
-        background: #15212A;
-        box-shadow: 0 0 0 1px rgba(244, 190, 69, 0.14);
+        background: #10263A;
+        box-shadow: 0 0 0 1px rgba(30, 167, 255, 0.14);
     }}
 
     .stButton > button[kind="primary"] {{
-        background: linear-gradient(180deg, var(--dc-gold-hover), var(--dc-gold));
-        border-color: var(--dc-gold);
-        color: #111820;
+        background: linear-gradient(180deg, var(--dc-blue-hover), var(--dc-blue));
+        border-color: var(--dc-blue);
+        color: #FFFFFF;
         font-weight: 800;
-        box-shadow: 0 6px 20px rgba(244, 190, 69, 0.18);
+        box-shadow: 0 6px 20px rgba(30, 167, 255, 0.20);
     }}
 
     .stButton > button[kind="primary"]:hover {{
-        background: var(--dc-gold-hover);
-        box-shadow: 0 8px 24px rgba(244, 190, 69, 0.25);
+        background: var(--dc-blue-hover);
+        box-shadow: 0 8px 24px rgba(30, 167, 255, 0.27);
     }}
 
     div[role="radiogroup"] label {{
         border: 1px solid var(--dc-border);
         border-radius: 8px;
-        background: #0D1821;
+        background: #0C1826;
         padding: 0.3rem 0.7rem;
     }}
 
     div[role="radiogroup"] label:has(input:checked) {{
-        background: linear-gradient(180deg, var(--dc-gold-hover), var(--dc-gold));
-        border-color: var(--dc-gold);
-        color: #111820 !important;
-        box-shadow: 0 3px 12px rgba(244, 190, 69, 0.2);
+        background: linear-gradient(180deg, var(--dc-blue-hover), var(--dc-blue));
+        border-color: var(--dc-blue);
+        color: #FFFFFF !important;
+        box-shadow: 0 3px 12px rgba(30, 167, 255, 0.22);
     }}
 
     div[role="radiogroup"] label:has(input:checked) p {{
-        color: #111820 !important;
+        color: #FFFFFF !important;
         font-weight: 800;
     }}
 
     button[data-baseweb="tab"][aria-selected="true"] {{
-        color: var(--dc-gold) !important;
+        color: var(--dc-blue) !important;
     }}
 
     [data-testid="stDataFrame"] {{
