@@ -27,3 +27,13 @@ Use the canonical team abbreviation already present on the current DraftKings sl
 3. Text placeholder
 
 No network lookup is performed by the resolver. This prevents stale image sources, broken external URLs, and visual identity from contaminating roster identity.
+
+## Bundled team assets (2026-10-29)
+
+32 NFL team PNGs were downloaded from ESPN's team-logo CDN:
+`https://a.espncdn.com/i/teamlogos/nfl/500/<provider-code>.png`.
+Provider codes are lowercase filenames, except WAS uses `wsh`.
+LA is a copy of LAR, and WSH is a copy of WAS (34 files total).
+These are team artwork assets, not player/team assignment evidence.
+Team marks belong to their respective owners; no ownership of the artwork is claimed.
+The app performs no image network requests at runtime.

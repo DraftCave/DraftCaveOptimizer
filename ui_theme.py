@@ -43,7 +43,7 @@ def _install_player_pool_identity_guard() -> None:
     @wraps(current)
     def guarded_data_editor(data, *args, **kwargs):
         key = str(kwargs.get("key", ""))
-        if key.startswith("player_pool_editor_v5_"):
+        if key.startswith(("player_pool_editor_v5_", "player_pool_editor_v6_")):
             column_order = list(kwargs.get("column_order") or [])
             if "Player" in column_order:
                 # The visual asset remains in the backing dataframe for future
@@ -63,7 +63,7 @@ def _install_player_pool_identity_guard() -> None:
             column_config = dict(kwargs.get("column_config") or {})
             column_config["Player"] = st.column_config.TextColumn(
                 "Player",
-                width="large",
+                width="medium",
                 help="Player name — always visible in the default pool view.",
             )
             kwargs["column_config"] = column_config
@@ -118,7 +118,7 @@ def app_css() -> str:
         padding-top: 4rem;
         padding-left: 1rem;
         padding-right: 1rem;
-        padding-bottom: 2.25rem;
+        padding-bottom: 11rem;
     }}
 
     [data-testid="stVerticalBlockBorderWrapper"] {{
@@ -205,6 +205,12 @@ def app_css() -> str:
         overflow: hidden;
     }}
 
+    /* Keep rapid exposure clicks from visually stacking Streamlit's stale-state dimming. */
+    .stale-element, [data-stale="true"] {{
+        opacity: 1 !important;
+        filter: none !important;
+    }}
+
     .dc-header {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem; }}
     .dc-brand {{ display:flex; align-items:center; gap:0.7rem; }}
     .dc-logo {{ font-size:1.7rem; }}
@@ -212,6 +218,12 @@ def app_css() -> str:
     .dc-brand-sub, .dc-header-badge {{ font-size:0.65rem; color:var(--dc-muted); letter-spacing:0.1em; }}
     [data-testid="stVerticalBlock"] {{ gap:0.65rem; }}
     [data-testid="stMetricValue"] {{ font-size:1.35rem; }}
+    .st-key-generate_action {{
+        position: fixed; bottom: 0.5rem; right: 1rem; z-index: 100;
+        width: min(340px, calc(100vw - 2rem)); padding: 0.6rem;
+        background: var(--dc-panel); border: 1px solid var(--dc-border);
+        border-radius: 10px; box-shadow: 0 4px 24px #0008;
+    }}
     .st-key-generate_action button[kind="primary"],
     .st-key-generate_action button[kind="primary"]:hover {{
         background:var(--dc-gold); border-color:var(--dc-gold); color:var(--dc-bg); box-shadow:none;

@@ -94,13 +94,11 @@ def test_pool_controls_generation_and_persistence(ui):
     assert all(c['Exclude'] for c in at.session_state.player_controls.values())
     at.checkbox(key='in_pool_all_ALL').check().run()
     edit_row(at, 0, {'In Pool': False})
-    at.selectbox(key='sentiment_player').set_value(second).run()
-    at.button(key='sentiment_BAN').click().run()
+    edit_row(at, 1, {'Sentiment': '⛔ Ban'})
     assert not pool_editor(at).value.iloc[1]['In Pool']
     at.radio(key='active_position').set_value('RB').run()
     at.number_input(key='group_exposure_min_RB').set_value(5).run()
-    at.button(key='apply_group_exposure_RB').click().run()
-    at.button(key='reset_group_exposure_RB').click().run()
+    at.number_input(key='group_exposure_min_RB').set_value(0).run()
     assert not at.exception
     assert at.number_input(key='group_exposure_min_RB').value == 0
     assert at.session_state.player_controls[first]['Exclude']
@@ -117,7 +115,7 @@ def test_pool_controls_generation_and_persistence(ui):
     result = at.session_state.generation_result
     assert len(result.lineups) == 2
     assert all(not ({first, second} & l.player_ids) for l in result.lineups)
-    at.radio(key='generated_lineup_position_view').set_value('RB').run()
+    at.radio(key='generated_portfolio_review_position').set_value('RB').run()
     assert not at.exception
     assert any('RB FLEX' in d.value.columns for d in at.dataframe)
     assert at.session_state.generation_result == result
@@ -144,8 +142,7 @@ def test_separate_lock_and_filtered_bulk_controls(ui):
     assert pool_editor(at).value['In Pool'].all()
     # Lock/BAN conflicts are shown, never silently ignored.
     row = list(map(int, pool_editor(at).value['ID'])).index(qb_id)
-    at.selectbox(key='sentiment_player').set_value(qb_id).run()
-    at.button(key='sentiment_BAN').click().run()
+    edit_row(at, row, {'Sentiment': '⛔ Ban'})
     assert any('both locked and excluded' in e.value for e in at.error)
     assert not at.exception
 
@@ -167,7 +164,6 @@ def test_bulk_exposure_only_changes_active_position(ui):
     assert set(map(int, pool_editor(at).value['ID'])) == rb_ids
     at.number_input(key='group_exposure_min_RB').set_value(10).run()
     at.number_input(key='group_exposure_max_RB').set_value(35).run()
-    at.button(key='apply_group_exposure_RB').click().run()
 
     assert not at.exception
     for pid in rb_ids:
@@ -178,19 +174,19 @@ def test_bulk_exposure_only_changes_active_position(ui):
         assert (controls['Min %'], controls['Max %']) == expected
 
 
-def test_sentiment_buttons_keep_identity_and_missing_metrics(ui):
+def test_sentiment_cells_keep_identity_and_missing_metrics(ui):
     at = ui
     frame = pool_editor(at).value
     pid = int(frame.iloc[0]['ID'])
-    projections = dict(zip(frame['ID'], frame['Proj']))
-    assert set(frame['Own %']) == {'—'}
-    assert set(frame['Ceiling']) == {'—'}
-    at.selectbox(key='sentiment_player').set_value(pid).run()
+    projections = dict(zip(frame['ID'], frame['Base Proj']))
+    assert frame['Own %'].isna().all()
+    assert frame['Ceiling'].isna().all()
+    from ui_components import sentiment_display
     for state in ('ADORE', 'LOVE', 'LIKE', 'NEUTRAL', 'DISLIKE', 'HATE', 'BAN'):
-        at.button(key=f'sentiment_{state}').click().run()
+        edit_row(at, 0, {'Sentiment': sentiment_display(state)})
         assert not at.exception
         assert at.session_state.player_controls[pid]['Sentiment'] == state
         current = pool_editor(at).value
-        assert dict(zip(current['ID'], current['Proj'])) == projections
-    at.button(key='sentiment_NEUTRAL').click().run()
+        assert dict(zip(current['ID'], current['Base Proj'])) == projections
+    edit_row(at, 0, {'Sentiment': sentiment_display('NEUTRAL')})
     assert at.session_state.player_controls[pid]['Exclude']  # unbanning does not silently re-add
