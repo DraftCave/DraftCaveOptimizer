@@ -31,5 +31,17 @@
 - CI/test hardening: green.
 - Remaining work is primarily final interaction polish and visual QA rather than optimizer functionality.
 
+## Latest chat-side checkpoint
+
+Completed without using Work:
+
+- player-name visibility patch,
+- regression protection for Player-left identity ordering,
+- active-position-only bulk Min/Max regression test,
+- exact DS-style interaction contract for exposure and sentiment,
+- validation checkpoint updated for the next runtime pass.
+
+The next Work/runtime session should not revisit architecture or optimizer behavior. It should focus only on the one-face sentiment interaction, optional identity visual reintegration, final visual QA, and publication readiness.
+
 ![Main screen](screenshots/ui-main.jpg)
 ![Player Pool](screenshots/ui-pool.jpg)
