@@ -8,6 +8,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from datetime import datetime
+from ui_theme import app_css
+from ui_components import SENTIMENT_ORDER, SENTIMENT_UI, sentiment_display, player_visual_uri, validate_sentiment_ui_contract
+
 from config import OptimizerSettings, discovery_example, raw_baseline
 from data_loader import (
     join_projections,
@@ -44,6 +48,14 @@ PLAYER_SENTIMENT_OPTIONS = [
     "HATE",
     "BAN",
 ]
+
+
+def _set_sentiment(player_id, sentiment):
+    controls = st.session_state.player_controls[player_id]
+    controls["Sentiment"] = sentiment
+    if sentiment == "BAN":
+        controls["Exclude"] = True
+    st.session_state.pool_editor_revision = st.session_state.get("pool_editor_revision", 0) + 1
 
 
 def _reset_position_exposure(position, player_ids):
@@ -312,362 +324,8 @@ def _clear_last_run_cache():
 # DRAFT CAVE UI
 # ============================================================
 
-st.markdown(
-    """
-    <style>
-    /* --------------------------------------------------------
-       PAGE
-       -------------------------------------------------------- */
-
-    .stApp {
-        background:
-            radial-gradient(
-                circle at top left,
-                rgba(15, 72, 135, 0.16),
-                transparent 28%
-            ),
-            linear-gradient(
-                180deg,
-                #07111f 0%,
-                #081321 42%,
-                #060d17 100%
-            );
-        color: #e8eef7;
-    }
-
-    [data-testid="stAppViewContainer"] {
-        background: transparent;
-    }
-
-    [data-testid="stHeader"] {
-        background: rgba(6, 13, 23, 0.82);
-    }
-
-    [data-testid="stMainBlockContainer"] {
-        max-width: 1800px;
-        padding-top: 1rem;
-        padding-bottom: 3rem;
-        padding-left: 1.25rem;
-        padding-right: 1.25rem;
-    }
-
-    /* --------------------------------------------------------
-       TYPOGRAPHY
-       -------------------------------------------------------- */
-
-    h1, h2, h3, h4 {
-        color: #f4f8ff;
-        letter-spacing: -0.02em;
-    }
-
-    p, span, label {
-        color: #c8d4e3;
-    }
-
-    .dc-muted {
-        color: #7f91a7;
-        font-size: 0.84rem;
-    }
-
-    .dc-blue {
-        color: #1ea7ff;
-    }
-
-    /* --------------------------------------------------------
-       HEADER
-       -------------------------------------------------------- */
-
-    .dc-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.9rem 1.1rem;
-        border: 1px solid #1a2d42;
-        border-radius: 14px;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(16, 30, 48, 0.96),
-                rgba(8, 18, 31, 0.96)
-            );
-        margin-bottom: 0.85rem;
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
-    }
-
-    .dc-brand {
-        display: flex;
-        align-items: center;
-        gap: 0.8rem;
-    }
-
-    .dc-logo {
-        font-size: 2rem;
-        line-height: 1;
-    }
-
-    .dc-brand-title {
-        font-size: 1.35rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        color: #f4f8ff;
-    }
-
-    .dc-brand-sub {
-        font-size: 0.68rem;
-        letter-spacing: 0.24em;
-        color: #8397ae;
-        margin-top: 0.12rem;
-    }
-
-    .dc-header-badge {
-        color: #90a5bc;
-        border: 1px solid #223a54;
-        background: #0d1a2a;
-        padding: 0.45rem 0.8rem;
-        border-radius: 9px;
-        font-size: 0.8rem;
-    }
-
-    /* --------------------------------------------------------
-       PANEL HEADERS
-       -------------------------------------------------------- */
-
-    .dc-panel-title {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 1.08rem;
-        font-weight: 700;
-        color: #f3f7fd;
-        margin: 0.2rem 0 0.55rem 0;
-    }
-
-    .dc-section-label {
-        color: #1ea7ff;
-        font-size: 0.84rem;
-        font-weight: 700;
-        letter-spacing: 0.025em;
-        margin-top: 0.25rem;
-        margin-bottom: 0.2rem;
-    }
-
-    /* --------------------------------------------------------
-       CONTAINERS
-       -------------------------------------------------------- */
-
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: #192c40 !important;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(13, 26, 43, 0.93),
-                rgba(8, 18, 31, 0.93)
-            );
-        border-radius: 13px;
-    }
-
-    div[data-testid="stExpander"] {
-        border: 1px solid #1b3148;
-        border-radius: 10px;
-        background: rgba(10, 21, 35, 0.75);
-    }
-
-    div[data-testid="stExpander"] details summary {
-        color: #dbe8f6;
-        font-weight: 600;
-    }
-
-    /* --------------------------------------------------------
-       INPUTS
-       -------------------------------------------------------- */
-
-    .stTextInput input,
-    .stNumberInput input {
-        background-color: #0b1726 !important;
-        border-color: #21384f !important;
-        color: #eef5ff !important;
-        border-radius: 8px !important;
-    }
-
-    div[data-baseweb="select"] > div {
-        background-color: #0b1726 !important;
-        border-color: #21384f !important;
-        color: #eef5ff !important;
-        border-radius: 8px !important;
-    }
-
-    /* --------------------------------------------------------
-       BUTTONS
-       -------------------------------------------------------- */
-
-    .stButton > button {
-        border-radius: 9px;
-        border: 1px solid #24425f;
-        background: #0d1c2d;
-        color: #d9e8f7;
-        min-height: 2.45rem;
-        font-weight: 650;
-        transition: all 0.16s ease;
-    }
-
-    .stButton > button:hover {
-        border-color: #1ea7ff;
-        color: #ffffff;
-        background: #10283e;
-        box-shadow: 0 0 0 1px rgba(30, 167, 255, 0.18);
-    }
-
-    .stButton > button[kind="primary"] {
-        background:
-            linear-gradient(
-                180deg,
-                #209cff,
-                #087ee5
-            );
-        border-color: #23a5ff;
-        color: white;
-        font-weight: 800;
-        box-shadow: 0 6px 20px rgba(0, 136, 255, 0.25);
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        background:
-            linear-gradient(
-                180deg,
-                #37adff,
-                #1389ed
-            );
-        box-shadow: 0 8px 26px rgba(0, 136, 255, 0.34);
-    }
-
-    /* --------------------------------------------------------
-       RADIO = POSITION BUTTON BAR
-       -------------------------------------------------------- */
-
-    div[role="radiogroup"] {
-        gap: 0.35rem;
-        flex-wrap: wrap;
-    }
-
-    div[role="radiogroup"] label {
-        border: 1px solid #213b55;
-        border-radius: 8px;
-        background: #0c1929;
-        padding: 0.35rem 0.75rem;
-        transition: all 0.15s ease;
-    }
-
-    div[role="radiogroup"] label:hover {
-        border-color: #168eea;
-        background: #10283f;
-    }
-
-    div[role="radiogroup"] label:has(input:checked) {
-        background:
-            linear-gradient(
-                180deg,
-                #1f9cff,
-                #087edd
-            );
-        border-color: #2aabff;
-        color: white !important;
-        box-shadow: 0 3px 12px rgba(0, 132, 255, 0.25);
-    }
-
-    div[role="radiogroup"] label:has(input:checked) p {
-        color: white !important;
-        font-weight: 700;
-    }
-
-    /* --------------------------------------------------------
-       TABS
-       -------------------------------------------------------- */
-
-    button[data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        color: #9eb0c4;
-        font-weight: 650;
-    }
-
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #2ba8ff !important;
-    }
-
-    /* --------------------------------------------------------
-       DATAFRAME / EDITOR
-       -------------------------------------------------------- */
-
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1a3047;
-        border-radius: 10px;
-        overflow: hidden;
-    }
-
-    [data-testid="stDataFrame"] iframe {
-        background: #07111e;
-    }
-
-    /* --------------------------------------------------------
-       METRICS
-       -------------------------------------------------------- */
-
-    [data-testid="stMetric"] {
-        background:
-            linear-gradient(
-                180deg,
-                rgba(15, 29, 46, 0.94),
-                rgba(9, 19, 32, 0.94)
-            );
-        border: 1px solid #1a3047;
-        border-radius: 10px;
-        padding: 0.7rem 0.85rem;
-    }
-
-    [data-testid="stMetricLabel"] {
-        color: #8296ad;
-    }
-
-    [data-testid="stMetricValue"] {
-        color: #f2f7fd;
-    }
-
-    /* --------------------------------------------------------
-       ALERTS
-       -------------------------------------------------------- */
-
-    [data-testid="stAlert"] {
-        border-radius: 9px;
-    }
-
-    /* --------------------------------------------------------
-       DOWNLOAD BUTTON
-       -------------------------------------------------------- */
-
-    .stDownloadButton > button {
-        width: 100%;
-        border-radius: 8px;
-        border-color: #214462;
-        background: #0d2032;
-        color: #dceeff;
-    }
-
-    /* --------------------------------------------------------
-       SMALLER STREAMLIT CHROME
-       -------------------------------------------------------- */
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
+st.markdown(app_css(), unsafe_allow_html=True)
+validate_sentiment_ui_contract()
 
 st.markdown(
     """
@@ -706,10 +364,10 @@ if "active_position" not in st.session_state:
 # DATA SOURCES
 # ============================================================
 
-with st.container(border=True):
+with st.expander("Slate Data", expanded=not (LOCAL_DK_FILE.exists() and LOCAL_PROJECTION_FILE.exists())):
 
     st.markdown(
-        '<div class="dc-panel-title">📁 Slate Data</div>',
+        '<div class="dc-panel-title">Upload slate files</div>',
         unsafe_allow_html=True,
     )
 
@@ -849,28 +507,19 @@ ceiling_complete = all(
 # SOURCE STATUS
 # ============================================================
 
-status_left, status_mid, status_right = st.columns(
-    [2, 2, 1]
+status_slot = st.empty()
+local_times = [f.stat().st_mtime for f in (dk_file, projection_file) if isinstance(f, Path)]
+freshness = datetime.fromtimestamp(min(local_times)).astimezone().strftime("%b %d %H:%M %Z") if len(local_times) == 2 else "Uploaded this session"
+last_run_label = "Available" if "generation_result" in st.session_state else "Not run"
+status_slot.caption(
+    f"{'🟢' if not unresolved else '🟠'} {matched} matched · {unresolved} unresolved · "
+    f"Oldest file update: {freshness} · Last run: {last_run_label} · "
+    f"OWN: {'Complete' if ownership_complete else 'Missing'} · Ceiling: {'Complete' if ceiling_complete else 'Missing'}"
 )
-
-status_left.caption(
-    f"DK: {dk_source_label}"
-)
-
-status_mid.caption(
-    f"Projections: {projection_source_label}"
-)
-
-status_right.caption(
-    f"{matched} matched • {unresolved} unresolved"
-)
-
-
-st.caption(
-    f"StatRankings: {sr_snapshot.status} | "
-    f"{len(sr_snapshot.evidence_by_id)} matched • "
-    f"{len(sr_snapshot.unresolved)} unresolved"
-)
+with st.expander("Data diagnostics", expanded=False):
+    st.caption(f"Salary file: {dk_source_label} | Projections: {projection_source_label}")
+    st.caption(f"StatRankings: {sr_snapshot.status} | {len(sr_snapshot.evidence_by_id)} matched · {len(sr_snapshot.unresolved)} unresolved")
+    st.caption("File update time is not verification of projection or ownership freshness.")
 if sr_snapshot.unresolved:
     with st.expander("Unresolved StatRankings evidence", expanded=False):
         st.dataframe(pd.DataFrame(sr_snapshot.unresolved), hide_index=True)
@@ -926,241 +575,244 @@ with st.container(border=True):
         unsafe_allow_html=True,
     )
 
-    settings_row = st.columns(
-        [1.35, 1.1, 1.1, 1.2, 1.55, 1.7]
-    )
-
-    with settings_row[0]:
-        preset = st.selectbox(
-            "Preset",
-            options=preset_options,
-            index=preset_options.index(
-                preset
-            ),
-            key="optimizer_preset",
+    settings_tabs = st.tabs(["Build", "Correlation", "Portfolio", "Advanced"])
+    with settings_tabs[0]:
+        settings_row = st.columns(
+            [1.35, 1.1, 1.1, 1.2, 1.55]
         )
 
-    if preset == "RAW BASELINE":
-        settings = raw_baseline()
-
-    elif preset == "DISCOVERY":
-        settings = discovery_example()
-
-    else:
-        settings = OptimizerSettings()
-
-    with settings_row[1]:
-        settings.num_lineups = (
-            st.number_input(
-                "Candidate Lineups",
-                min_value=1,
-                max_value=2000,
-                value=int(
-                    settings.num_lineups
+        with settings_row[0]:
+            preset = st.selectbox(
+                "Preset",
+                options=preset_options,
+                index=preset_options.index(
+                    preset
                 ),
-                step=1,
+                key="optimizer_preset",
             )
-        )
 
-    with settings_row[2]:
-        settings.minimum_uniques = (
-            st.number_input(
-                "Minimum Uniques",
-                min_value=1,
-                max_value=9,
-                value=int(
-                    settings.minimum_uniques
-                ),
-                step=1,
-            )
-        )
+        if preset == "RAW BASELINE":
+            settings = raw_baseline()
 
-    with settings_row[3]:
-        settings.minimum_salary = (
-            st.number_input(
-                "Minimum Salary",
-                min_value=0,
-                max_value=50000,
-                value=int(
-                    settings.minimum_salary
-                ),
-                step=100,
-            )
-        )
+        elif preset == "DISCOVERY":
+            settings = discovery_example()
 
-    with settings_row[4]:
-        settings.randomization_pct = (
-            st.slider(
-                "Randomization",
-                min_value=0,
-                max_value=50,
-                value=int(
-                    round(
-                        settings.randomization_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-    generate_placeholder = settings_row[5]
-
-
-    st.markdown(
-        '<div class="dc-section-label">'
-        'Stacking & Correlation'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    correlation_row = st.columns(
-        [1, 1, 1.15, 1.15, 1.35, 1.35]
-    )
-
-    with correlation_row[0]:
-        settings.qb_stack_min = (
-            st.number_input(
-                "QB Stack Min",
-                min_value=0,
-                max_value=4,
-                value=int(
-                    settings.qb_stack_min
-                ),
-                step=1,
-            )
-        )
-
-    with correlation_row[1]:
-        settings.qb_stack_max = (
-            st.number_input(
-                "QB Stack Max",
-                min_value=0,
-                max_value=4,
-                value=min(
-                    int(
-                        settings.qb_stack_max
-                    ),
-                    4,
-                ),
-                step=1,
-            )
-        )
-
-    with correlation_row[2]:
-        settings.require_bringback = (
-            st.toggle(
-                "Require Bring-Back",
-                value=(
-                    settings.require_bringback
-                ),
-            )
-        )
-
-    with correlation_row[3]:
-        settings.require_secondary_stack = (
-            st.toggle(
-                "Secondary Stack",
-                value=(
-                    settings.require_secondary_stack
-                ),
-            )
-        )
-
-    with correlation_row[4]:
-        settings.sim_same_team_pct = (
-            st.slider(
-                "Same-Team SIM",
-                min_value=0,
-                max_value=50,
-                value=int(
-                    round(
-                        settings.sim_same_team_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-    with correlation_row[5]:
-        settings.sim_opponent_pct = (
-            st.slider(
-                "Opponent SIM",
-                min_value=0,
-                max_value=30,
-                value=int(
-                    round(
-                        settings.sim_opponent_pct
-                        * 100
-                    )
-                ),
-                step=1,
-                format="%d%%",
-            )
-            / 100.0
-        )
-
-
-    # --------------------------------------------------------
-    # PORTFOLIO CONTROLS
-    # High-frequency controls stay visible instead of being buried.
-    # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="dc-section-label">Portfolio Controls</div>',
-        unsafe_allow_html=True,
-    )
-
-    portfolio_controls = st.columns([2.2, 1, 1, 1])
-
-    with portfolio_controls[0]:
-        if ownership_complete:
-            ownership_bounds = st.slider(
-                "Total Lineup Ownership",
-                min_value=0,
-                max_value=900,
-                value=(0, 900),
-                step=5,
-                format="%d%%",
-                help=(
-                    "Cumulative projected ownership across all nine lineup slots. "
-                    "Leave at the full range to keep the constraint off."
-                ),
-                key="total_lineup_ownership_range_v3",
-            )
-            if ownership_bounds != (0, 900):
-                settings.ownership_min = float(ownership_bounds[0])
-                settings.ownership_max = float(ownership_bounds[1])
         else:
-            st.slider(
-                "Total Lineup Ownership",
-                min_value=0,
-                max_value=900,
-                value=(0, 900),
-                step=5,
-                format="%d%%",
-                disabled=True,
-                help="Projected ownership is not available in the current projection source.",
-                key="total_lineup_ownership_unavailable_v3",
-            )
-            st.caption("Waiting for projected ownership data.")
+            settings = OptimizerSettings()
 
-    for column, position in zip(portfolio_controls[1:], ["RB", "WR", "TE"]):
-        with column:
-            flex_pct = st.number_input(
-                f"{position} FLEX Max %",
-                min_value=0,
-                max_value=100,
-                value=int(settings.flex_position_caps[position] * 100),
-                step=5,
-                key=f"flex_cap_{position.lower()}_v3",
+        with settings_row[1]:
+            settings.num_lineups = (
+                st.number_input(
+                    "Candidate Lineups",
+                    min_value=1,
+                    max_value=2000,
+                    value=int(
+                        settings.num_lineups
+                    ),
+                    step=1,
+                )
             )
-            settings.flex_position_caps[position] = float(flex_pct) / 100.0
+
+        with settings_row[2]:
+            settings.minimum_uniques = (
+                st.number_input(
+                    "Minimum Uniques",
+                    min_value=1,
+                    max_value=9,
+                    value=int(
+                        settings.minimum_uniques
+                    ),
+                    step=1,
+                )
+            )
+
+        with settings_row[3]:
+            settings.minimum_salary = (
+                st.number_input(
+                    "Minimum Salary",
+                    min_value=0,
+                    max_value=50000,
+                    value=int(
+                        settings.minimum_salary
+                    ),
+                    step=100,
+                )
+            )
+
+        with settings_row[4]:
+            settings.randomization_pct = (
+                st.slider(
+                    "Randomization",
+                    min_value=0,
+                    max_value=50,
+                    value=int(
+                        round(
+                            settings.randomization_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+
+
+    with settings_tabs[1]:
+        st.markdown(
+            '<div class="dc-section-label">'
+            'Stacking & Correlation'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        correlation_row = st.columns(
+            [1, 1, 1.15, 1.15, 1.35, 1.35]
+        )
+
+        with correlation_row[0]:
+            settings.qb_stack_min = (
+                st.number_input(
+                    "QB Stack Min",
+                    min_value=0,
+                    max_value=4,
+                    value=int(
+                        settings.qb_stack_min
+                    ),
+                    step=1,
+                )
+            )
+
+        with correlation_row[1]:
+            settings.qb_stack_max = (
+                st.number_input(
+                    "QB Stack Max",
+                    min_value=0,
+                    max_value=4,
+                    value=min(
+                        int(
+                            settings.qb_stack_max
+                        ),
+                        4,
+                    ),
+                    step=1,
+                )
+            )
+
+        with correlation_row[2]:
+            settings.require_bringback = (
+                st.toggle(
+                    "Require Bring-Back",
+                    value=(
+                        settings.require_bringback
+                    ),
+                )
+            )
+
+        with correlation_row[3]:
+            settings.require_secondary_stack = (
+                st.toggle(
+                    "Secondary Stack",
+                    value=(
+                        settings.require_secondary_stack
+                    ),
+                )
+            )
+
+        with correlation_row[4]:
+            settings.sim_same_team_pct = (
+                st.slider(
+                    "Same-Team SIM",
+                    min_value=0,
+                    max_value=50,
+                    value=int(
+                        round(
+                            settings.sim_same_team_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+        with correlation_row[5]:
+            settings.sim_opponent_pct = (
+                st.slider(
+                    "Opponent SIM",
+                    min_value=0,
+                    max_value=30,
+                    value=int(
+                        round(
+                            settings.sim_opponent_pct
+                            * 100
+                        )
+                    ),
+                    step=1,
+                    format="%d%%",
+                )
+                / 100.0
+            )
+
+
+    with settings_tabs[2]:
+        # --------------------------------------------------------
+        # PORTFOLIO CONTROLS
+        # High-frequency controls stay visible instead of being buried.
+        # --------------------------------------------------------
+
+        st.markdown(
+            '<div class="dc-section-label">Portfolio Controls</div>',
+            unsafe_allow_html=True,
+        )
+
+        portfolio_controls = st.columns([2.2, 1, 1, 1])
+
+        with portfolio_controls[0]:
+            if ownership_complete:
+                ownership_bounds = st.slider(
+                    "Total Lineup Ownership",
+                    min_value=0,
+                    max_value=900,
+                    value=(0, 900),
+                    step=5,
+                    format="%d%%",
+                    help=(
+                        "Cumulative projected ownership across all nine lineup slots. "
+                        "Leave at the full range to keep the constraint off."
+                    ),
+                    key="total_lineup_ownership_range_v3",
+                )
+                if ownership_bounds != (0, 900):
+                    settings.ownership_min = float(ownership_bounds[0])
+                    settings.ownership_max = float(ownership_bounds[1])
+            else:
+                st.slider(
+                    "Total Lineup Ownership",
+                    min_value=0,
+                    max_value=900,
+                    value=(0, 900),
+                    step=5,
+                    format="%d%%",
+                    disabled=True,
+                    help="Projected ownership is not available in the current projection source.",
+                    key="total_lineup_ownership_unavailable_v3",
+                )
+                st.caption("Waiting for projected ownership data.")
+
+        for column, position in zip(portfolio_controls[1:], ["RB", "WR", "TE"]):
+            with column:
+                flex_pct = st.number_input(
+                    f"{position} FLEX Max %",
+                    min_value=0,
+                    max_value=100,
+                    value=int(settings.flex_position_caps[position] * 100),
+                    step=5,
+                    key=f"flex_cap_{position.lower()}_v3",
+                )
+                settings.flex_position_caps[position] = float(flex_pct) / 100.0
 
     # --------------------------------------------------------
     # CONSTRUCTION RULES / DIAGNOSTICS
@@ -1169,113 +821,114 @@ with st.container(border=True):
 
     settings.statrankings_edge_by_id = sr_snapshot.edge_by_id
 
-    with st.expander(
-        "Construction Rules & Diagnostics",
-        expanded=False,
-    ):
-        construction_cols = st.columns([1.25, 1, 1.7, 1.45, 1.45])
+    with settings_tabs[3]:
+        with st.expander(
+            "Construction Rules & Diagnostics",
+            expanded=False,
+        ):
+            construction_cols = st.columns([1.25, 1, 1.7, 1.45, 1.45])
 
-        with construction_cols[0]:
-            settings.statrankings_influence = st.selectbox(
-                "StatRankings Influence",
-                options=["OFF", "LOW", "MEDIUM", "HIGH"],
-                index=0,
-                help=(
-                    "LOW max ±0.5%, MEDIUM ±1.0%, HIGH ±2.0%; "
-                    "objective only, never stored projection."
-                ),
-                key="sr_influence_v3",
-            )
-
-        with construction_cols[1]:
-            settings.random_seed = st.number_input(
-                "Random Seed",
-                min_value=0,
-                max_value=999999,
-                value=int(settings.random_seed),
-                step=1,
-                help="Only matters when Randomization is above 0%.",
-                key="random_seed_v3",
-            )
-
-        with construction_cols[2]:
-            offense_vs_dst = st.selectbox(
-                "Max offense vs opposing DST",
-                options=["OFF", 0, 1, 2, 3, 4, 5, 6, 7, 8],
-                key="offense_vs_dst_v3",
-            )
-            if offense_vs_dst != "OFF":
-                settings.max_offense_vs_opposing_dst = int(offense_vs_dst)
-
-        with construction_cols[3]:
-            qb_rb = st.selectbox(
-                "Max same-team RB with QB",
-                options=["OFF", 0, 1, 2, 3],
-                key="qb_rb_v3",
-            )
-            if qb_rb != "OFF":
-                settings.max_qb_with_same_team_rb = int(qb_rb)
-
-        with construction_cols[4]:
-            qb_dst = st.selectbox(
-                "Max same-team DST with QB",
-                options=["OFF", 0, 1],
-                key="qb_dst_v3",
-            )
-            if qb_dst != "OFF":
-                settings.max_qb_with_same_team_dst = int(qb_dst)
-
-    # Position Exposure Caps are intentionally not exposed here anymore.
-    # The optimizer capability remains available in config.py, but the UI now
-    # uses the Player Pool position-tab group Min/Max controls for exposure work.
-
-    with st.expander(
-        "Decision / Intervention Log",
-        expanded=False,
-    ):
-        intervention_cols = st.columns(4)
-
-        with intervention_cols[0]:
-            reason = st.text_input("Reason / hypothesis")
-
-        with intervention_cols[1]:
-            evidence = st.text_input("Evidence delta")
-
-        with intervention_cols[2]:
-            counterargument = st.text_input("Strongest counterargument")
-
-        with intervention_cols[3]:
-            invalidation = st.text_input("Invalidation trigger")
-
-        log_left, reset_right = st.columns([1, 1])
-
-        with log_left:
-            if st.button(
-                "Log Intervention",
-                width="stretch",
-            ):
-                st.session_state.intervention_log.append(
-                    {
-                        "reason": reason,
-                        "evidence_delta": evidence,
-                        "counterargument": counterargument,
-                        "invalidation_trigger": invalidation,
-                    }
+            with construction_cols[0]:
+                settings.statrankings_influence = st.selectbox(
+                    "StatRankings Influence",
+                    options=["OFF", "LOW", "MEDIUM", "HIGH"],
+                    index=0,
+                    help=(
+                        "LOW max ±0.5%, MEDIUM ±1.0%, HIGH ±2.0%; "
+                        "objective only, never stored projection."
+                    ),
+                    key="sr_influence_v3",
                 )
 
-        with reset_right:
-            if st.button(
-                "Reset Instructions",
-                width="stretch",
-            ):
-                st.info("Select RAW BASELINE above before regenerating.")
+            with construction_cols[1]:
+                settings.random_seed = st.number_input(
+                    "Random Seed",
+                    min_value=0,
+                    max_value=999999,
+                    value=int(settings.random_seed),
+                    step=1,
+                    help="Only matters when Randomization is above 0%.",
+                    key="random_seed_v3",
+                )
 
-        if st.session_state.intervention_log:
-            show_table(
-                pd.DataFrame(st.session_state.intervention_log),
-                width="stretch",
-                hide_index=True,
-            )
+            with construction_cols[2]:
+                offense_vs_dst = st.selectbox(
+                    "Max offense vs opposing DST",
+                    options=["OFF", 0, 1, 2, 3, 4, 5, 6, 7, 8],
+                    key="offense_vs_dst_v3",
+                )
+                if offense_vs_dst != "OFF":
+                    settings.max_offense_vs_opposing_dst = int(offense_vs_dst)
+
+            with construction_cols[3]:
+                qb_rb = st.selectbox(
+                    "Max same-team RB with QB",
+                    options=["OFF", 0, 1, 2, 3],
+                    key="qb_rb_v3",
+                )
+                if qb_rb != "OFF":
+                    settings.max_qb_with_same_team_rb = int(qb_rb)
+
+            with construction_cols[4]:
+                qb_dst = st.selectbox(
+                    "Max same-team DST with QB",
+                    options=["OFF", 0, 1],
+                    key="qb_dst_v3",
+                )
+                if qb_dst != "OFF":
+                    settings.max_qb_with_same_team_dst = int(qb_dst)
+
+        # Position Exposure Caps are intentionally not exposed here anymore.
+        # The optimizer capability remains available in config.py, but the UI now
+        # uses the Player Pool position-tab group Min/Max controls for exposure work.
+
+        with st.expander(
+            "Decision / Intervention Log",
+            expanded=False,
+        ):
+            intervention_cols = st.columns(4)
+
+            with intervention_cols[0]:
+                reason = st.text_input("Reason / hypothesis")
+
+            with intervention_cols[1]:
+                evidence = st.text_input("Evidence delta")
+
+            with intervention_cols[2]:
+                counterargument = st.text_input("Strongest counterargument")
+
+            with intervention_cols[3]:
+                invalidation = st.text_input("Invalidation trigger")
+
+            log_left, reset_right = st.columns([1, 1])
+
+            with log_left:
+                if st.button(
+                    "Log Intervention",
+                    width="stretch",
+                ):
+                    st.session_state.intervention_log.append(
+                        {
+                            "reason": reason,
+                            "evidence_delta": evidence,
+                            "counterargument": counterargument,
+                            "invalidation_trigger": invalidation,
+                        }
+                    )
+
+            with reset_right:
+                if st.button(
+                    "Reset Instructions",
+                    width="stretch",
+                ):
+                    st.info("Select RAW BASELINE above before regenerating.")
+
+            if st.session_state.intervention_log:
+                show_table(
+                    pd.DataFrame(st.session_state.intervention_log),
+                    width="stretch",
+                    hide_index=True,
+                )
 
 
 # ============================================================
@@ -1792,6 +1445,27 @@ with st.container(border=True):
     # PLAYER TABLE
     # --------------------------------------------------------
 
+    if filtered_players:
+        sentiment_players = {int(p.dk_id): p for p in filtered_players}
+        sentiment_cols = st.columns([3, 5])
+        with sentiment_cols[0]:
+            sentiment_id = st.selectbox(
+                "Sentiment player", list(sentiment_players),
+                format_func=lambda pid: f"{sentiment_players[pid].name} · {sentiment_players[pid].team} · DK {pid}",
+                key="sentiment_player",
+            )
+        with sentiment_cols[1]:
+            st.caption("Sentiment · objective only; projection unchanged")
+            for col, state in zip(st.columns(7), SENTIMENT_ORDER):
+                col.button(
+                    SENTIMENT_UI[state]["icon"],
+                    help=sentiment_display(state) + " · " + {"ADORE": "+10%", "LOVE": "+7.5%", "LIKE": "+5%", "NEUTRAL": "0%", "DISLIKE": "−5%", "HATE": "−10%", "BAN": "exclude"}[state],
+                    key=f"sentiment_{state}",
+                    type="primary" if st.session_state.player_controls[sentiment_id]["Sentiment"] == state else "secondary",
+                    on_click=_set_sentiment, args=(sentiment_id, state), width="stretch",
+                )
+    show_research = st.checkbox("Show research columns", value=False)
+
     pool_rows = []
 
     for p in filtered_players:
@@ -1831,14 +1505,16 @@ with st.container(border=True):
                 ),
                 "ID": p.dk_id,
                 "Player": p.name,
+                "Visual": player_visual_uri(p, BASE_DIR / "assets"),
+                "Conviction": sentiment_display(controls.get("Sentiment", "NEUTRAL")),
                 "Team": p.team,
                 "Opp": p.opponent,
                 "Pos": p.position,
                 "Salary": p.salary,
                 "Proj": p.projection,
-                "Own %": p.ownership,
+                "Own %": "—" if p.ownership is None else f"{p.ownership:.1f}",
                 "Value": value_score,
-                "Ceiling": p.ceiling,
+                "Ceiling": "—" if p.ceiling is None else f"{p.ceiling:.2f}",
                 "Role": sr_snapshot.evidence_by_id.get(p.dk_id, {}).get("Role_Score"),
                 "Form": sr_snapshot.evidence_by_id.get(p.dk_id, {}).get("Form_Score"),
                 "Matchup": sr_snapshot.evidence_by_id.get(p.dk_id, {}).get("Matchup_Score"),
@@ -1850,41 +1526,26 @@ with st.container(border=True):
         )
 
 
-    pool_df = pd.DataFrame(
-        pool_rows,
-        columns=[
-            "In Pool",
-            "Min %",
-            "Max %",
-            "Sentiment",
-            "ID",
-            "Player",
-            "Team",
-            "Opp",
-            "Pos",
-            "Salary",
-            "Proj",
-            "Own %",
-            "Value",
-            "Ceiling",
-            "Role",
-            "Form",
-            "Matchup",
-            "Env",
-            "Edge",
-            "Injury",
-            "Status",
-        ],
-    )
-
+    pool_df = pd.DataFrame(pool_rows, columns=[
+        "In Pool", "Visual", "Player", "Team", "Opp", "Pos", "Salary", "Proj",
+        "Own %", "Ceiling", "Value", "Conviction", "Min %", "Max %", "ID",
+        "Sentiment", "Role", "Form", "Matchup", "Env", "Edge", "Injury", "Status",
+    ])
+    display_columns = ["In Pool", "Visual", "Player", "Team", "Opp", "Pos", "Salary",
+                       "Proj", "Own %", "Ceiling", "Value", "Conviction", "Min %", "Max %"]
+    if show_research:
+        display_columns += ["ID", "Role", "Form", "Matchup", "Env", "Edge", "Injury", "Status"]
 
     editor_key = f"player_pool_editor_v5_{st.session_state.get('pool_editor_revision', 0)}"
     edited_pool_df = st.data_editor(
         pool_df,
         width="stretch",
-        height=560,
+        height=455,
+        row_height=28,
+        column_order=display_columns,
         hide_index=True,
         disabled=[
+            "Visual", "Conviction", "Sentiment",
             "ID",
             "Player",
             "Team",
@@ -1916,19 +1577,10 @@ with st.container(border=True):
                 )
             ),
 
-            "Sentiment": (
-                st.column_config.SelectboxColumn(
-                    "Sentiment",
-                    options=PLAYER_SENTIMENT_OPTIONS,
-                    default="NEUTRAL",
-                    help=(
-                        "Objective-only manual conviction: ADORE +10%, "
-                        "LOVE +7.5%, LIKE +5%, NEUTRAL 0%, DISLIKE -5%, "
-                        "HATE -10%, BAN excludes. Stored projection is unchanged."
-                    ),
-                )
-            ),
-
+            "Sentiment": None,
+            "Visual": st.column_config.ImageColumn("", width=35),
+            "Player": st.column_config.TextColumn("Player", width="medium"),
+            "Conviction": st.column_config.TextColumn("Sentiment", width="small"),
             "Min %": (
                 st.column_config.NumberColumn(
                     "Min %",
@@ -1970,12 +1622,7 @@ with st.container(border=True):
                 )
             ),
 
-            "Own %": (
-                st.column_config.NumberColumn(
-                    "Own %",
-                    format="%.1f",
-                )
-            ),
+            "Own %": st.column_config.TextColumn("Own %", width="small"),
 
             "Value": (
                 st.column_config.NumberColumn(
@@ -1988,12 +1635,7 @@ with st.container(border=True):
                 )
             ),
 
-            "Ceiling": (
-                st.column_config.NumberColumn(
-                    "Ceiling",
-                    format="%.2f",
-                )
-            ),
+            "Ceiling": st.column_config.TextColumn("Ceiling", width="small"),
 
             "Role": st.column_config.NumberColumn("Role", format="%.2f"),
             "Form": st.column_config.NumberColumn("Form", format="%.2f"),
@@ -2250,12 +1892,12 @@ if missing_projection_players:
 # GENERATE
 # ============================================================
 
-with generate_placeholder:
+with st.container(key="generate_action"):
 
     st.write("")
 
     generate_clicked = st.button(
-        "▶ Generate Lineups",
+        f"GENERATE {settings.num_lineups} LINEUPS",
         type="primary",
         width="stretch",
     )
@@ -2423,11 +2065,10 @@ with st.container(border=True):
     tabs = st.tabs(
         [
             "Lineups",
-            "Player Exposures",
-            "Stack Analysis",
-            "Portfolio",
-            "Stories",
-            "Final Selection",
+            "Exposure",
+            "Stacks & Games",
+            "Portfolio Risk",
+            "Repetition",
             "Export",
         ]
     )
@@ -2520,7 +2161,7 @@ with st.container(border=True):
     # STACK ANALYSIS
     # --------------------------------------------------------
 
-    with tabs[2]:
+    with tabs[4]:
 
         stack_left, stack_right = (
             st.columns(2)
@@ -2586,7 +2227,7 @@ with st.container(border=True):
     # STORIES
     # --------------------------------------------------------
 
-    with tabs[4]:
+    with tabs[2]:
 
         st.markdown(
             "### QB / Game / Stack Story Families"
@@ -2609,7 +2250,7 @@ with st.container(border=True):
     # FINAL SELECTION
     # --------------------------------------------------------
 
-    with tabs[5]:
+    with tabs[3]:
 
         st.markdown(
             "### Outcome-Blind Final Selection"
@@ -2773,7 +2414,7 @@ with st.container(border=True):
     # EXPORT
     # --------------------------------------------------------
 
-    with tabs[6]:
+    with tabs[5]:
 
         st.markdown(
             "### DraftKings Export"

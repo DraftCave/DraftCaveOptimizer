@@ -58,7 +58,7 @@ def app_css() -> str:
 
     [data-testid="stMainBlockContainer"] {{
         max-width: 1840px;
-        padding-top: 0.7rem;
+        padding-top: 4rem;
         padding-left: 1rem;
         padding-right: 1rem;
         padding-bottom: 2.25rem;
@@ -148,6 +148,17 @@ def app_css() -> str:
         overflow: hidden;
     }}
 
+    .dc-header {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem; }}
+    .dc-brand {{ display:flex; align-items:center; gap:0.7rem; }}
+    .dc-logo {{ font-size:1.7rem; }}
+    .dc-brand-title {{ font-size:1.2rem; font-weight:800; letter-spacing:0.12em; }}
+    .dc-brand-sub, .dc-header-badge {{ font-size:0.65rem; color:var(--dc-muted); letter-spacing:0.1em; }}
+    [data-testid="stVerticalBlock"] {{ gap:0.65rem; }}
+    [data-testid="stMetricValue"] {{ font-size:1.35rem; }}
+    .st-key-generate_action button[kind="primary"],
+    .st-key-generate_action button[kind="primary"]:hover {{
+        background:var(--dc-gold); border-color:var(--dc-gold); color:var(--dc-bg); box-shadow:none;
+    }}
     #MainMenu, footer {{
         visibility: hidden;
     }}

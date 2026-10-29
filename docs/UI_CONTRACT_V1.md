@@ -9,10 +9,11 @@ This document defines the visual and interaction target for the first production
 Use the approved dark Draft Cave command-center mockup as the visual reference.
 
 - Dark charcoal / near-black primary canvas.
-- Draft Cave gold is the primary action / selected-state accent.
+- Black / midnight navy canvas with cool blue interactions and selected states.
+- Restrained Draft Cave gold is reserved for the Generate action.
 - Green/red are reserved for actual positive/negative status or movement.
 - Gray is neutral.
-- Reduce blue-heavy styling from the current Streamlit implementation.
+- Use the shared `ui_theme.py` palette; no competing inline theme.
 - Dense professional DFS-tool feel; avoid oversized cards or mobile-game styling.
 - Prefer spacing and subtle panel contrast over excessive nested borders.
 - Optimize for desktop use and fast Sunday scanning.

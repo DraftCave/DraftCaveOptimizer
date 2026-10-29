@@ -83,3 +83,16 @@ def test_player_visual_uses_text_placeholder_when_assets_missing(tmp_path: Path)
     assert visual.source == "placeholder"
     assert visual.path is None
     assert "Test Player" in visual.alt_text
+
+
+def test_renderable_visual_falls_back_from_corrupt_headshot(tmp_path):
+    from PIL import Image
+    from ui_components import player_visual_uri
+    (tmp_path / "players").mkdir()
+    (tmp_path / "teams").mkdir()
+    (tmp_path / "players" / "12345.png").write_bytes(b"broken image")
+    logo = tmp_path / "teams" / "DAL.png"
+    Image.new("RGB", (40, 40), "blue").save(logo)
+    assert player_visual_uri(_player(), tmp_path).startswith("data:image/png;base64,")
+    logo.unlink()
+    assert player_visual_uri(_player(), tmp_path).startswith("data:image/svg+xml;base64,")

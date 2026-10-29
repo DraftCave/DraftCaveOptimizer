@@ -55,12 +55,11 @@ def test_ban_exclusion_and_neutral_randomization():
 
 
 @pytest.fixture
-def ui(tmp_path, monkeypatch):
+def ui(tmp_path, monkeypatch, slate_dir):
     # Run the actual app against copied inputs; never overwrite the user's saved reservoir.
     import shutil
     source = Path(__file__).resolve().parents[1]
     shutil.copy2(source / 'app.py', tmp_path / 'app.py')
-    shutil.copytree(source / 'data', tmp_path / 'data')
     (tmp_path / 'data' / '.draft_cave_last_run.pkl').unlink(missing_ok=True)
     at = AppTest.from_file(str(tmp_path / 'app.py'), default_timeout=30).run()
     assert not at.exception
@@ -95,7 +94,8 @@ def test_pool_controls_generation_and_persistence(ui):
     assert all(c['Exclude'] for c in at.session_state.player_controls.values())
     at.checkbox(key='in_pool_all_ALL').check().run()
     edit_row(at, 0, {'In Pool': False})
-    edit_row(at, 1, {'Sentiment': 'BAN'})
+    at.selectbox(key='sentiment_player').set_value(second).run()
+    at.button(key='sentiment_BAN').click().run()
     assert not pool_editor(at).value.iloc[1]['In Pool']
     at.radio(key='active_position').set_value('RB').run()
     at.number_input(key='group_exposure_min_RB').set_value(5).run()
@@ -109,7 +109,7 @@ def test_pool_controls_generation_and_persistence(ui):
     # Limit runtime while exercising real UI -> settings -> solver -> results.
     count = next(n for n in at.number_input if 'lineup' in n.label.lower())
     count.set_value(2).run()
-    next(b for b in at.button if 'Generate Lineups' in b.label).click().run(timeout=60)
+    next(b for b in at.button if b.label.startswith('GENERATE ')).click().run(timeout=60)
     assert not at.exception
     settings = at.session_state.generation_settings
     assert {first, second} <= settings.exclude_players
@@ -144,6 +144,25 @@ def test_separate_lock_and_filtered_bulk_controls(ui):
     assert pool_editor(at).value['In Pool'].all()
     # Lock/BAN conflicts are shown, never silently ignored.
     row = list(map(int, pool_editor(at).value['ID'])).index(qb_id)
-    edit_row(at, row, {'Sentiment': 'BAN'})
+    at.selectbox(key='sentiment_player').set_value(qb_id).run()
+    at.button(key='sentiment_BAN').click().run()
     assert any('both locked and excluded' in e.value for e in at.error)
     assert not at.exception
+
+
+def test_sentiment_buttons_keep_identity_and_missing_metrics(ui):
+    at = ui
+    frame = pool_editor(at).value
+    pid = int(frame.iloc[0]['ID'])
+    projections = dict(zip(frame['ID'], frame['Proj']))
+    assert set(frame['Own %']) == {'—'}
+    assert set(frame['Ceiling']) == {'—'}
+    at.selectbox(key='sentiment_player').set_value(pid).run()
+    for state in ('ADORE', 'LOVE', 'LIKE', 'NEUTRAL', 'DISLIKE', 'HATE', 'BAN'):
+        at.button(key=f'sentiment_{state}').click().run()
+        assert not at.exception
+        assert at.session_state.player_controls[pid]['Sentiment'] == state
+        current = pool_editor(at).value
+        assert dict(zip(current['ID'], current['Proj'])) == projections
+    at.button(key='sentiment_NEUTRAL').click().run()
+    assert at.session_state.player_controls[pid]['Exclude']  # unbanning does not silently re-add

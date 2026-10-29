@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import base64
+from io import BytesIO
+
+from PIL import Image
 
 from models import Player
 from optimizer import PLAYER_SENTIMENT_ADJUSTMENT
@@ -112,3 +116,27 @@ def validate_sentiment_ui_contract() -> None:
             f"missing_in_ui={missing_in_ui}, "
             f"missing_in_optimizer={missing_in_optimizer}"
         )
+
+
+def player_visual_uri(player: Player, assets_dir: Path) -> str:
+    """Small, verified local image; corrupt/missing assets fall through safely."""
+    visual = resolve_player_visual(player, assets_dir)
+    candidates = [visual.path] if visual.path else []
+    team = str(player.team).strip().upper()
+    # Only exact local identity keys; never allow an asset key to escape its folder.
+    if team and Path(team).name == team:
+        candidates += [assets_dir / "teams" / f"{team}{suffix}" for suffix in SUPPORTED_IMAGE_SUFFIXES]
+    root = assets_dir.resolve()
+    for path in candidates:
+        if not path.resolve().is_relative_to(root):
+            continue
+        try:
+            with Image.open(path) as source:
+                source.thumbnail((28, 28))
+                buffer = BytesIO()
+                source.convert("RGBA").save(buffer, format="PNG")
+            return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        except (OSError, ValueError):
+            continue
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><rect width="28" height="28" rx="5" fill="#13283D"/><circle cx="14" cy="10" r="5" fill="#8296AD"/><path d="M5 26v-4a9 9 0 0 1 18 0v4" fill="#8296AD"/></svg>'
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode("ascii")
