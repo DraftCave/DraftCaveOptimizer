@@ -1,0 +1,17 @@
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.streamlit/secrets.toml
+.draft_cave_last_run.pkl
+
+repair_backup_20261029/
+
+data/*.csv
+data/*.xlsx
+data/*.json
+data/*.pkl
+data/*.sqlite
+data/*.sqlite3
