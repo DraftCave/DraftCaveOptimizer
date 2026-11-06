@@ -1,0 +1,8 @@
+{
+  "phase": "TECHNICAL_REPLAY",
+  "slate": "Synthetic packaging fixture only",
+  "salary_file": "DKSalaries.csv",
+  "salary_sha256": "eef302bc8c2ed5ff9beeaa8c0a42bb86c1b60891d545ea26cd70b07d10508f51",
+  "projection_file": "projections.csv",
+  "projection_sha256": "8ef9c14052374872e94ce031661f68d6d16e6bdc6b5f6e18c58ae84ddada7ea1"
+}
