@@ -31,6 +31,12 @@ class OptimizeRequest(BaseModel):
         le=50_000,
     )
 
+    salary_cap: int = Field(default=50_000, ge=0, le=50_000)
+    min_player_salary: int = Field(default=0, ge=0, le=50_000)
+    max_player_salary: int = Field(default=50_000, ge=0, le=50_000)
+    min_player_projection: float = Field(default=0.1, ge=0, le=100)
+    max_player_projection: float = Field(default=100.0, ge=0, le=100)
+
     randomization_pct: float = Field(
         default=0.0,
         ge=0.0,
@@ -119,6 +125,8 @@ class OptimizeRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_request(self):
+        if self.min_salary > self.salary_cap or self.min_player_salary > self.max_player_salary or self.min_player_projection > self.max_player_projection:
+            raise ValueError('Invalid min/max salary or projection ranges')
         if self.qb_stack_min > self.qb_stack_max:
             raise ValueError(
                 "qb_stack_min must be less than or equal to qb_stack_max"
@@ -435,9 +443,12 @@ def optimize(request: OptimizeRequest):
         request.minimum_uniques
     )
 
-    settings.minimum_salary = (
-        request.min_salary
-    )
+    settings.minimum_salary = request.min_salary
+    settings.salary_cap = request.salary_cap
+    settings.min_player_salary = request.min_player_salary
+    settings.max_player_salary = request.max_player_salary
+    settings.min_player_projection = max(0.1000001, request.min_player_projection)
+    settings.max_player_projection = request.max_player_projection
 
     settings.randomization_pct = (
         request.randomization_pct
@@ -541,9 +552,12 @@ def optimize(request: OptimizeRequest):
         "minimum_uniques": (
             request.minimum_uniques
         ),
-        "min_salary": (
-            request.min_salary
-        ),
+        "min_salary": request.min_salary,
+        "salary_cap": request.salary_cap,
+        "min_player_salary": request.min_player_salary,
+        "max_player_salary": request.max_player_salary,
+        "min_player_projection": settings.min_player_projection,
+        "max_player_projection": request.max_player_projection,
         "randomization_pct": (
             request.randomization_pct
         ),
