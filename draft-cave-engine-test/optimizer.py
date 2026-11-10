@@ -173,7 +173,10 @@ def _make_lineup(
         ):
             continue
 
-        if player.projection < settings.min_player_projection:
+        if player.projection < settings.min_player_projection or player.projection > settings.max_player_projection:
+            continue
+
+        if not settings.min_player_salary <= player.salary <= settings.max_player_salary:
             continue
 
         max_count = _maximum_exposure_count(
