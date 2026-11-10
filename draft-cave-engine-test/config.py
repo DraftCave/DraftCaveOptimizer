@@ -15,6 +15,9 @@ class OptimizerSettings:
 
     # Player pool
     min_player_projection: float = 0.01
+    max_player_projection: float = 100.0
+    min_player_salary: int = 0
+    max_player_salary: int = 50000
     exclude_zero_projection: bool = True
 
     # Candidate discovery
