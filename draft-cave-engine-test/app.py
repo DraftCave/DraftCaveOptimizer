@@ -11,7 +11,7 @@ from backend.api import app
 
 @app.middleware("http")
 async def private_api(request: Request, call_next):
-    expected = os.getenv("DRAFT_CAVE_OPTIMIZER_API_KEY", "")
+    expected = os.getenv("DRAFT_CAVE_OPTIMIZER_KEY") or os.getenv("DRAFT_CAVE_OPTIMIZER_API_KEY", "")
     supplied = request.headers.get("x-draft-cave-key", "")
     if len(expected) < 24 or not hmac.compare_digest(expected, supplied):
         return JSONResponse({"error": "Unauthorized"}, status_code=401, headers={"Cache-Control": "no-store"})

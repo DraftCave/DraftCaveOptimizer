@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+DATA = Path(__file__).resolve().parents[1] / "data"
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
@@ -288,8 +292,8 @@ def health():
 
 @app.get("/players")
 def get_players():
-    dk_file = "data/DKSalaries.csv"
-    projection_file = "data/projections.csv"
+    dk_file = DATA / "DKSalaries.csv"
+    projection_file = DATA / "projections.csv"
 
     dk_players = load_dk_salaries(
         dk_file
@@ -361,8 +365,8 @@ def get_players():
 
 @app.get("/test-optimize")
 def test_optimize():
-    dk_file = "data/DKSalaries.csv"
-    projection_file = "data/projections.csv"
+    dk_file = DATA / "DKSalaries.csv"
+    projection_file = DATA / "projections.csv"
 
     dk_players = load_dk_salaries(
         dk_file
@@ -411,8 +415,8 @@ def test_optimize():
 
 @app.post("/optimize")
 def optimize(request: OptimizeRequest):
-    dk_file = "data/DKSalaries.csv"
-    projection_file = "data/projections.csv"
+    dk_file = DATA / "DKSalaries.csv"
+    projection_file = DATA / "projections.csv"
 
     dk_players = load_dk_salaries(
         dk_file
