@@ -150,7 +150,7 @@ def _make_lineup(
     eligible_players: list[Player] = []
 
     for player in players:
-        if player.dk_id in settings.exclude_players:
+        if not player.eligible or player.dk_id in settings.exclude_players:
             continue
 
         sentiment = settings.player_sentiment_by_id.get(

@@ -17,6 +17,7 @@ class Player:
     game: str
     status: Optional[str]
 
+    eligible: bool = True
     projection: Optional[float] = None
     ceiling: Optional[float] = None
     ownership: Optional[float] = None

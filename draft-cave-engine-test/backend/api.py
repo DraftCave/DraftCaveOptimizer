@@ -7,12 +7,8 @@ DATA = Path(__file__).resolve().parents[1] / "data"
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
+from snapshot import verified_players
 from config import raw_baseline
-from data_loader import (
-    join_projections,
-    load_dk_salaries,
-    load_projection_table,
-)
 from optimizer import generate_lineups
 
 
@@ -232,6 +228,9 @@ def serialize_lineups(lineups):
                     "position": player.position,
                     "salary": player.salary,
                     "projection": player.projection,
+                    "ceiling": player.ceiling,
+                    "ownership": player.ownership,
+                    "eligible": player.eligible,
                 }
                 for slot, player in lineup.slots.items()
             },
@@ -292,22 +291,7 @@ def health():
 
 @app.get("/players")
 def get_players():
-    dk_file = DATA / "DKSalaries.csv"
-    projection_file = DATA / "projections.csv"
-
-    dk_players = load_dk_salaries(
-        dk_file
-    )
-
-    projections = load_projection_table(
-        projection_file
-    )
-
-    players, join_report = join_projections(
-        dk_players,
-        projections,
-        source_name="local_projection_file",
-    )
+    players, join_report = verified_players(DATA)
 
     sorted_players = sorted(
         players,
@@ -357,6 +341,9 @@ def get_players():
                 "opponent": player.opponent,
                 "salary": player.salary,
                 "projection": player.projection,
+                    "ceiling": player.ceiling,
+                    "ownership": player.ownership,
+                    "eligible": player.eligible,
             }
             for player in sorted_players
         ],
@@ -365,22 +352,7 @@ def get_players():
 
 @app.get("/test-optimize")
 def test_optimize():
-    dk_file = DATA / "DKSalaries.csv"
-    projection_file = DATA / "projections.csv"
-
-    dk_players = load_dk_salaries(
-        dk_file
-    )
-
-    projections = load_projection_table(
-        projection_file
-    )
-
-    players, join_report = join_projections(
-        dk_players,
-        projections,
-        source_name="local_projection_file",
-    )
+    players, join_report = verified_players(DATA)
 
     settings = raw_baseline()
     settings.num_lineups = 5
@@ -415,22 +387,7 @@ def test_optimize():
 
 @app.post("/optimize")
 def optimize(request: OptimizeRequest):
-    dk_file = DATA / "DKSalaries.csv"
-    projection_file = DATA / "projections.csv"
-
-    dk_players = load_dk_salaries(
-        dk_file
-    )
-
-    projections = load_projection_table(
-        projection_file
-    )
-
-    players, join_report = join_projections(
-        dk_players,
-        projections,
-        source_name="local_projection_file",
-    )
+    players, join_report = verified_players(DATA)
 
     validate_player_ids(
         request,
