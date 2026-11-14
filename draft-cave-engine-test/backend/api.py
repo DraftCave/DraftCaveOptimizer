@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 
@@ -13,6 +14,7 @@ from optimizer import generate_lineups
 
 
 class OptimizeRequest(BaseModel):
+    snapshot_id: Literal["nov11", "nov14_practice"] = "nov11"
     num_lineups: int = Field(
         default=5,
         ge=1,
@@ -96,6 +98,7 @@ class OptimizeRequest(BaseModel):
     player_min_exposure: dict[int, float] = Field(
         default_factory=dict,
     )
+    player_sentiment_by_id: dict[int, str] = Field(default_factory=dict)
 
     position_player_caps: dict[str, float] = Field(
         default_factory=dict,
@@ -148,6 +151,10 @@ class OptimizeRequest(BaseModel):
             raise ValueError(
                 f"Players cannot be both locked and excluded: {conflict_text}"
             )
+
+        allowed_sentiments = {"ADORE", "LOVE", "LIKE", "NEUTRAL", "DISLIKE", "HATE", "ENRAGE"}
+        if any(value not in allowed_sentiments for value in self.player_sentiment_by_id.values()):
+            raise ValueError("Unsupported player sentiment")
 
         for dk_id, exposure in self.player_max_exposure.items():
             if exposure < 0.0 or exposure > 1.0:
@@ -214,6 +221,14 @@ app = FastAPI(
 )
 
 
+def load_snapshot(snapshot_id: str):
+    if snapshot_id == "nov11":
+        return verified_players(DATA)
+    if snapshot_id == "nov14_practice":
+        return verified_players(DATA, "verified-ds-nov14-practice.csv", "DS 2026-11-14 14:36 CT practice")
+    raise HTTPException(status_code=422, detail="Unsupported snapshot")
+
+
 def serialize_lineups(lineups):
     return [
         {
@@ -253,6 +268,7 @@ def validate_player_ids(
         | set(request.exclude_players)
         | set(request.player_max_exposure)
         | set(request.player_min_exposure)
+        | set(request.player_sentiment_by_id)
     )
 
     unknown_ids = sorted(
@@ -290,8 +306,8 @@ def health():
 
 
 @app.get("/players")
-def get_players():
-    players, join_report = verified_players(DATA)
+def get_players(snapshot_id: Literal["nov11", "nov14_practice"] = "nov11"):
+    players, join_report = load_snapshot(snapshot_id)
 
     sorted_players = sorted(
         players,
@@ -387,7 +403,7 @@ def test_optimize():
 
 @app.post("/optimize")
 def optimize(request: OptimizeRequest):
-    players, join_report = verified_players(DATA)
+    players, join_report = load_snapshot(request.snapshot_id)
 
     validate_player_ids(
         request,
@@ -462,6 +478,8 @@ def optimize(request: OptimizeRequest):
     settings.player_min_exposure = dict(
         request.player_min_exposure
     )
+    settings.player_sentiment_by_id = dict(request.player_sentiment_by_id)
+    settings.web_sentiment_scale = True
 
     for (
         position,
@@ -510,6 +528,7 @@ def optimize(request: OptimizeRequest):
         "requested_lineups": (
             request.num_lineups
         ),
+        "snapshot_id": request.snapshot_id,
         "minimum_uniques": (
             request.minimum_uniques
         ),
@@ -558,6 +577,7 @@ def optimize(request: OptimizeRequest):
         "player_min_exposure": (
             request.player_min_exposure
         ),
+        "player_sentiment_by_id": request.player_sentiment_by_id,
         "position_player_caps": (
             request.position_player_caps
         ),

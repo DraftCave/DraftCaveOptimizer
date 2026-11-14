@@ -39,6 +39,15 @@ PLAYER_SENTIMENT_ADJUSTMENT = {
     "HATE": -0.100,
     "BAN": None,
 }
+WEB_SENTIMENT_ADJUSTMENT = {
+    "ADORE": 0.150,
+    "LOVE": 0.100,
+    "LIKE": 0.050,
+    "NEUTRAL": 0.000,
+    "DISLIKE": -0.050,
+    "HATE": -0.100,
+    "ENRAGE": -0.150,
+}
 
 
 def statrankings_objective_adjustment(
@@ -71,14 +80,14 @@ def player_sentiment_objective_adjustment(
         "NEUTRAL",
     ).upper()
 
-    if sentiment not in PLAYER_SENTIMENT_ADJUSTMENT:
+    scale = WEB_SENTIMENT_ADJUSTMENT if settings.web_sentiment_scale else PLAYER_SENTIMENT_ADJUSTMENT
+    if sentiment not in scale:
         raise ValueError(
             f"Invalid player sentiment for {player.name}: {sentiment!r}"
         )
 
-    adjustment = PLAYER_SENTIMENT_ADJUSTMENT[sentiment]
+    adjustment = scale[sentiment]
 
-    # BAN is handled during eligibility filtering, not as a projection penalty.
     return 0.0 if adjustment is None else float(adjustment)
 
 
@@ -157,9 +166,9 @@ def _make_lineup(
             player.dk_id,
             "NEUTRAL",
         ).upper()
-        if sentiment == "BAN":
+        if sentiment == "BAN" and not settings.web_sentiment_scale:
             continue
-        if sentiment not in PLAYER_SENTIMENT_ADJUSTMENT:
+        if sentiment not in (WEB_SENTIMENT_ADJUSTMENT if settings.web_sentiment_scale else PLAYER_SENTIMENT_ADJUSTMENT):
             raise ValueError(
                 f"Invalid player sentiment for {player.name}: {sentiment!r}"
             )
@@ -558,11 +567,16 @@ def _make_lineup(
             player,
             settings,
         )
-        objective_projection = (
-            projection
-            * (1.0 + sr_adjustment)
-            * (1.0 + sentiment_adjustment)
-        )
+        if settings.web_sentiment_scale:
+            objective_projection = (
+                projection * (1.0 + sr_adjustment)
+                + player.projection * sentiment_adjustment
+            )
+        else:
+            objective_projection = (
+                projection * (1.0 + sr_adjustment)
+                * (1.0 + sentiment_adjustment)
+            )
 
         value = (
             settings.projection_weight

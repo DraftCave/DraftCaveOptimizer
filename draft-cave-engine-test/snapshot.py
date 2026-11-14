@@ -14,10 +14,10 @@ def metric(raw):
     return value
 
 
-def verified_players(directory):
+def verified_players(directory, snapshot_name="verified-ds-rs.csv", source_label="DS 2026-11-11 09:00 CT"):
     official = {p.dk_id: p for p in load_dk_salaries(directory / "DKSalaries.csv")}
     players = []
-    with (directory / "verified-ds-rs.csv").open(newline="", encoding="utf-8") as source:
+    with (directory / snapshot_name).open(newline="", encoding="utf-8") as source:
         for row in csv.DictReader(source):
             p = official.pop(int(row["DK_ID"]))
             if (p.name, p.team, p.position, p.salary, p.game) != (
@@ -31,7 +31,7 @@ def verified_players(directory):
             if eligible and (not projection or projection <= .1 or p.status in {"IR", "OUT", "O", "D", "HOLD", "EXCLUDE"}):
                 raise ValueError("Invalid eligible player")
             players.append(replace(p, projection=projection, ceiling=ceiling, ownership=ownership,
-                                   eligible=eligible, source_projection="DS 2026-11-11 09:00 CT"))
+                                   eligible=eligible, source_projection=source_label))
     if official or len(players) != 506:
         raise ValueError("Incomplete Week 10 snapshot")
     return players, pd.DataFrame({"status": ["MATCHED"] * len(players)})

@@ -88,6 +88,7 @@ class OptimizerSettings:
     # This is an optimizer-objective intervention only and never mutates
     # Player.projection. Values are keyed by DraftKings ID.
     player_sentiment_by_id: dict[int, str] = field(default_factory=dict)
+    web_sentiment_scale: bool = False
 
 
 def raw_baseline() -> OptimizerSettings:
